@@ -8,6 +8,8 @@ export type InlayAssetMeta = {
     updatedAt: number
     charId?: string
     chatId?: string
+    comfyVideoDisplayAssetId?: string
+    comfyVideoUpdatedAt?: number
 }
 
 class NodeInlayMetaStorage {
@@ -31,7 +33,9 @@ class NodeInlayMetaStorage {
             const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
             const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
             const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-            return { createdAt, updatedAt, charId, chatId }
+            const comfyVideoDisplayAssetId = typeof raw?.comfyVideoDisplayAssetId === 'string' ? raw.comfyVideoDisplayAssetId : undefined
+            const comfyVideoUpdatedAt = typeof raw?.comfyVideoUpdatedAt === 'number' ? raw.comfyVideoUpdatedAt : undefined
+            return { createdAt, updatedAt, charId, chatId, comfyVideoDisplayAssetId, comfyVideoUpdatedAt }
         } catch {
             return null
         }
@@ -50,7 +54,9 @@ class NodeInlayMetaStorage {
                     const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
                     const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
                     const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-                    result[id] = { createdAt, updatedAt, charId, chatId }
+                    const comfyVideoDisplayAssetId = typeof raw?.comfyVideoDisplayAssetId === 'string' ? raw.comfyVideoDisplayAssetId : undefined
+                    const comfyVideoUpdatedAt = typeof raw?.comfyVideoUpdatedAt === 'number' ? raw.comfyVideoUpdatedAt : undefined
+                    result[id] = { createdAt, updatedAt, charId, chatId, comfyVideoDisplayAssetId, comfyVideoUpdatedAt }
                 } catch {
                     // skip corrupt meta entries
                 }
@@ -115,5 +121,7 @@ export function buildInlayMeta(existingMeta?: InlayAssetMeta | null): InlayAsset
         updatedAt: now,
         charId: (existingMeta?.charId && existingMeta.charId.length > 0) ? existingMeta.charId : currentCharId,
         chatId: (existingMeta?.chatId && existingMeta.chatId.length > 0) ? existingMeta.chatId : currentChatId,
+        comfyVideoDisplayAssetId: (existingMeta?.comfyVideoDisplayAssetId && existingMeta.comfyVideoDisplayAssetId.length > 0) ? existingMeta.comfyVideoDisplayAssetId : undefined,
+        comfyVideoUpdatedAt: (existingMeta?.comfyVideoUpdatedAt && existingMeta.comfyVideoUpdatedAt > 0) ? existingMeta.comfyVideoUpdatedAt : undefined,
     }
 }

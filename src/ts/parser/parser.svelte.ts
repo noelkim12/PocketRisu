@@ -12,8 +12,12 @@ import { selectedCharID } from '../stores.svelte';
 import { calcString } from '../process/infunctions';
 import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
 
-import { getInlayInfosBatch } from '../process/files/inlays';
+import { getInlayInfosBatch, setInlayAsset } from '../process/files/inlays';
 import { getModuleAssets, getModuleLorebooks, getModules } from '../process/modules';
+import { notifyError, notifySuccess } from '../alert';
+import { getComfyVideoDisplayAssetId, setComfyVideoDisplayAsset } from '../process/comfy/comfyInlayVideoVariant';
+import { generateComfyVideoFromBlob } from '../process/comfy/comfyVideo';
+import { wrapImageWithComfyVideoAction } from '../process/comfy/comfyVideoActions';
 import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.min.css'
 import { language } from 'src/lang';
@@ -463,6 +467,9 @@ export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], 
 
 $effect.root(() => {
     $effect(() => {
+        if (!selIdState || !DBState.db) {
+            return
+        }
         const charId = selIdState.selId
         const char = DBState.db.characters?.[charId]
         if (!char || char.type !== 'character') {
@@ -662,7 +669,7 @@ function trimmer(str:string){
     return str.trim().replace(/[_ -.]/g, '')
 }
 
-const blobUrlCache = new Map<string, { url: string; type: string }>()
+const blobUrlCache = new Map<string, { url: string; type: string; displayAssetId?: string }>()
 const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
 
 /** Build a direct-serve URL for a KV key via /api/asset/ */
@@ -688,6 +695,80 @@ function createMissingInlayPlaceholder(id: string): HTMLDivElement {
     return box
 }
 
+async function resolveComfyVideoDisplayAssetId(id: string): Promise<string | null> {
+    try {
+        return await getComfyVideoDisplayAssetId(id)
+    } catch (error) {
+        console.error(`[Inlay] Failed to resolve ComfyUI display asset for ${id}`, error)
+        return null
+    }
+}
+
+function createInlayPlaceholderMarkup(id: string, inlayType: string, prefix: string, postfix: string) {
+    return `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder risu-loading-spinner" style="width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.1); border-radius: 8px;"></div>${postfix}`
+}
+
+function shouldUseComfyVideoAction() {
+    return DBState.db?.comfyConfig?.video?.enabled === true
+}
+
+async function generateComfyVideoForInlay(args: { img: HTMLImageElement; inlayId: string }) {
+    const config = DBState.db?.comfyConfig?.video
+    if (!config?.enabled) {
+        notifyError('ComfyUI video generation is disabled')
+        return
+    }
+
+    const db = getDatabase()
+    if (!db?.comfyUiUrl || !config.workflow) {
+        notifyError('ComfyUI video generation is not configured')
+        return
+    }
+
+    try {
+        const sourceUrl = args.img.currentSrc || args.img.src
+        const response = await fetch(sourceUrl, { credentials: 'include' })
+        if (!response.ok) {
+            throw new Error(`Failed to fetch inlay image (${response.status})`)
+        }
+
+        const originalBlob = await response.blob()
+        const video = await generateComfyVideoFromBlob({
+            baseUrl: db.comfyUiUrl,
+            image: originalBlob,
+            filename: `${args.inlayId}.png`,
+            workflowText: config.workflow,
+            inputImageNodeId: config.inputImageNodeId,
+            inputImageField: config.inputImageField,
+            outputNodeId: config.outputNodeId,
+            positivePrompt: config.positivePrompt,
+            negativePrompt: config.negativePrompt,
+            timeoutSeconds: config.timeout,
+        })
+
+        const generatedId = `${args.inlayId}-comfy-video`
+        await setInlayAsset(generatedId, {
+            name: `${generatedId}.webp`,
+            data: new Blob([video.bytes], { type: video.mimeType }),
+            ext: 'webp',
+            type: 'image',
+        })
+        await setComfyVideoDisplayAsset(args.inlayId, generatedId)
+
+        const generatedUrl = assetUrl(`inlay/${generatedId}`)
+        blobUrlCache.set(args.inlayId, { url: generatedUrl, type: 'image', displayAssetId: generatedId })
+        blobUrlCache.set(generatedId, { url: generatedUrl, type: 'image' })
+        args.img.onerror = null
+        args.img.src = generatedUrl
+        args.img.setAttribute('data-inlay-id', args.inlayId)
+        args.img.setAttribute('data-comfy-video-display-id', generatedId)
+        notifySuccess('ComfyUI video generated')
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        notifyError(`ComfyUI video generation failed: ${message}`)
+    }
+}
+
 export function parseInlayAssets(data:string){
     const inlayMatch = data.match(/{{(inlay|inlayed|inlayeddata)::(.+?)}}/g)
     if(inlayMatch){
@@ -698,9 +779,9 @@ export function parseInlayAssets(data:string){
             let postfix = inlayType !== 'inlay' ? `</div>\n\n` : ''
 
             let cached = blobUrlCache.get(id)
-            if(!cached){
+            if(!cached || (cached.type === 'image' && shouldUseComfyVideoAction())){
                 // If not in memory cache, inject placeholder
-                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder risu-loading-spinner" style="width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.1); border-radius: 8px;"></div>${postfix}`
+                const placeholder = createInlayPlaceholderMarkup(id, inlayType, prefix, postfix)
                 data = data.replace(inlay, placeholder)
                 continue
             }
@@ -768,20 +849,34 @@ async function processInlayQueue() {
             try {
                 if (!el.parentNode) continue
 
-                const cached = blobUrlCache.get(id)
+                let cached = blobUrlCache.get(id)
+                const displayAssetId = cached?.displayAssetId ?? await resolveComfyVideoDisplayAssetId(id)
+                if (displayAssetId && (!cached || cached.type === 'image')) {
+                    cached = { url: assetUrl(`inlay/${displayAssetId}`), type: 'image', displayAssetId }
+                    blobUrlCache.set(id, cached)
+                }
+
                 const url = cached?.url ?? assetUrl(`inlay/${id}`)
                 const type = cached?.type ?? 'image'
                 if (!cached) blobUrlCache.set(id, { url, type })
 
                 switch (type) {
-                    case 'image':
+                    case 'image': {
                         if (DBState.db.hideAllImages) { el.remove(); break }
                         const img = document.createElement('img')
+                        img.setAttribute('data-inlay-id', id)
+                        if (displayAssetId) {
+                            img.setAttribute('data-comfy-video-display-id', displayAssetId)
+                        }
                         img.src = url
                         img.style.animation = 'risu-fade-in 0.3s ease-out'
                         // Fallback for legacy inlays without inlay_info:
                         // if <img> fails, probe Content-Type and swap to video/audio
                         img.onerror = async () => {
+                            const currentRenderedNode = () => {
+                                const parent = img.parentElement
+                                return parent?.classList.contains('x-risu-risu-comfy-video-image-wrap') ? parent : img
+                            }
                             try {
                                 const head = await fetch(url, { method: 'HEAD' })
                                 const ct = head.headers.get('content-type') || ''
@@ -792,7 +887,7 @@ async function processInlayQueue() {
                                     const src = document.createElement('source')
                                     src.src = url; src.type = ct
                                     video.appendChild(src)
-                                    img.replaceWith(video)
+                                    currentRenderedNode().replaceWith(video)
                                 } else if (ct.startsWith('audio/')) {
                                     blobUrlCache.set(id, { url, type: 'audio' })
                                     const audio = document.createElement('audio')
@@ -800,16 +895,26 @@ async function processInlayQueue() {
                                     const src = document.createElement('source')
                                     src.src = url; src.type = ct
                                     audio.appendChild(src)
-                                    img.replaceWith(audio)
+                                    currentRenderedNode().replaceWith(audio)
                                 } else {
-                                    img.replaceWith(createMissingInlayPlaceholder(id))
+                                    currentRenderedNode().replaceWith(createMissingInlayPlaceholder(id))
                                 }
                             } catch {
-                                img.replaceWith(createMissingInlayPlaceholder(id))
+                                currentRenderedNode().replaceWith(createMissingInlayPlaceholder(id))
                             }
                         }
-                        el.replaceWith(img)
+                        if (shouldUseComfyVideoAction()) {
+                            const durationMs = DBState.db?.comfyConfig?.video?.hoverButtonDurationMs ?? 3000
+                            el.replaceWith(wrapImageWithComfyVideoAction(img, {
+                                durationMs,
+                                inlayId: id,
+                                onGenerate: generateComfyVideoForInlay,
+                            }))
+                        } else {
+                            el.replaceWith(img)
+                        }
                         break
+                    }
                     case 'video': {
                         const video = document.createElement('video')
                         video.controls = true
@@ -845,7 +950,7 @@ async function processInlayQueue() {
 
 export function resolveInlayPlaceholders(root: HTMLElement) {
     if (!root) return
-    const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]')) as HTMLElement[]
+    const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]:not([data-inlay-resolving])')) as HTMLElement[]
     if (placeholders.length === 0) return
 
     const observer = new IntersectionObserver((entries) => {
@@ -863,7 +968,10 @@ export function resolveInlayPlaceholders(root: HTMLElement) {
         })
     }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view
 
-    placeholders.forEach(el => observer.observe(el))
+    placeholders.forEach(el => {
+        el.setAttribute('data-inlay-resolving', 'true')
+        observer.observe(el)
+    })
 }
 
 export interface simpleCharacterArgument{
