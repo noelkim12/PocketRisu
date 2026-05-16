@@ -125,8 +125,11 @@
         }
     }
 
-    function openEbookReader() {
-        ebookReaderStore.currentChatIndex = currentChat.length > 0 ? currentChat.length - 1 : -1
+    async function openEbookReader() {
+        const activeChat = await ensureActiveChatReady()
+        const lastChatIndex = activeChat && activeChat.message.length > 0 ? activeChat.message.length - 1 : -1
+
+        ebookReaderStore.currentChatIndex = lastChatIndex
         ebookReaderStore.currentPageIndex = 0
         ebookReaderStore.status = 'idle'
         ebookReaderStore.open = true
@@ -688,6 +691,7 @@
             <div
                     class="{DBState.db.fixedChatTextarea ? 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} flex items-stretch w-full"
                     style="{DBState.db.fixedChatTextarea ? 'z-index:29;' : ''}"
+                    data-chat-composer-region
             >
                 {#if DBState.db.useChatSticker}
                     <div onclick={()=>{toggleStickers = !toggleStickers}}
@@ -802,7 +806,7 @@
                 {/if}
             </div>
             {#if DBState.db.useAutoTranslateInput && DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
-                <div class="flex items-center mt-2 mb-2">
+                <div class="flex items-center mt-2 mb-2" data-chat-composer-region>
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
                         <LanguagesIcon />
                     </label>
@@ -829,7 +833,7 @@
             {/if}
 
             {#if fileInput.length > 0}
-                <div class="flex items-center ml-4 flex-wrap p-2 m-2 border-darkborderc border rounded-md">
+                <div class="flex items-center ml-4 flex-wrap p-2 m-2 border-darkborderc border rounded-md" data-chat-composer-region>
                     {#each fileInput as file, i}
                         {#await getInlayAsset(file) then inlayAsset}
                             <div class="relative">
@@ -863,7 +867,7 @@
             {/if}
 
             {#if toggleStickers}
-                <div class="ml-4 flex flex-wrap">
+                <div class="ml-4 flex flex-wrap" data-chat-composer-region>
                     <AssetInput currentCharacter={currentCharacter} onSelect={(additionalAsset)=>{
                         let fileType = 'img'
                         if(additionalAsset.length > 2 && additionalAsset[2]) {
@@ -880,11 +884,13 @@
             {/if}
 
             {#if DBState.db.useAutoSuggestions}
-                <Suggestion messageInput={(msg)=>messageInput=(
-                    (DBState.db.subModel === "textgen_webui" || DBState.db.subModel === "mancer" || DBState.db.subModel.startsWith('local_')) && DBState.db.autoSuggestClean
-                    ? msg.replace(/ +\(.+?\) *$| - [^"'*]*?$/, '')
-                    : msg
-                )} {send}/>
+                <div data-chat-composer-region>
+                    <Suggestion messageInput={(msg)=>messageInput=(
+                        (DBState.db.subModel === "textgen_webui" || DBState.db.subModel === "mancer" || DBState.db.subModel.startsWith('local_')) && DBState.db.autoSuggestClean
+                        ? msg.replace(/ +\(.+?\) *$| - [^"'*]*?$/, '')
+                        : msg
+                    )} {send}/>
+                </div>
             {/if}
 
             {#if !currentChatReady}

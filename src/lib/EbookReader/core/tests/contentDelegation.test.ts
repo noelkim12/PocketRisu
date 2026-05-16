@@ -77,6 +77,44 @@ describe('ebook reader content delegation capture', () => {
         expect(buttons.map((button) => button.getAttribute('data-ebook-reader-button-ordinal'))).toEqual(['0', '1'])
     })
 
+    it('retargets copied popover controls to reader-local popover ids', () => {
+        const html = annotateContentButtons(`
+            <button popovertarget="lb-xnai-lazy-13">삽화</button>
+            <div class="x-risu-lb-xnai-menu" id="lb-xnai-lazy-13" popover>
+                <button popovertarget="lb-xnai-lazy-13" risu-btn="lb-xnai-gen/13">이미지 전체 생성</button>
+            </div>
+        `, 13)
+        const container = document.createElement('div')
+        container.innerHTML = html
+        const opener = container.querySelector<HTMLButtonElement>('button:not([risu-btn])')!
+        const action = container.querySelector<HTMLButtonElement>('button[risu-btn]')!
+        const popover = container.querySelector<HTMLElement>('[popover]')!
+
+        expect(opener.getAttribute('popovertarget')).toBe('ebook-reader-popover-13-0')
+        expect(action.getAttribute('popovertarget')).toBe('ebook-reader-popover-13-0')
+        expect(popover.id).toBe('ebook-reader-popover-13-0')
+        expect(popover.getAttribute('data-ebook-reader-popover')).toBe('true')
+    })
+
+    it('preserves fullsize image popovers without reader retargeting', () => {
+        const html = annotateContentButtons(`
+            <button type="button" popovertarget="lb-xnai-pop-15-5"><img src="/api/asset/example"></button>
+            <dialog class="x-risu-lb-xnai-fullsize-pop" popover id="lb-xnai-pop-15-5">
+                <div><button type="button" popovertarget="lb-xnai-pop-15-5"><img src="/api/asset/full"></button></div>
+            </dialog>
+        `, 15)
+        const container = document.createElement('div')
+        container.innerHTML = html
+        const opener = container.querySelector<HTMLButtonElement>('button')!
+        const dialog = container.querySelector<HTMLDialogElement>('dialog')!
+        const images = Array.from(container.querySelectorAll<HTMLImageElement>('img'))
+
+        expect(opener.getAttribute('popovertarget')).toBe('lb-xnai-pop-15-5')
+        expect(dialog.id).toBe('lb-xnai-pop-15-5')
+        expect(dialog.hasAttribute('data-ebook-reader-popover')).toBe(false)
+        expect(images.map((image) => image.getAttribute('src'))).toEqual(['/api/asset/example', '/api/asset/full'])
+    })
+
     it('does not dispatch forged delegation attributes on non-content-button elements', () => {
         document.body.innerHTML = `
             <section class="default-chat-screen">

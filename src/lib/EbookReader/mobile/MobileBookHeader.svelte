@@ -1,5 +1,6 @@
 <script lang="ts">
     import { BookmarkIcon, BookOpenIcon, CopyIcon, HeadphonesIcon, LanguagesIcon, MessageSquareIcon, PencilIcon, RefreshCcwIcon, RotateCcwIcon, Trash2Icon, XIcon } from '@lucide/svelte'
+    import ReaderCustomizationPopover from '../ReaderCustomizationPopover.svelte'
     import type { EbookReaderStatus, ReaderAction, ReaderHeaderInfo } from '../core/readerTypes'
     import { readerLabel } from '../readerLanguage'
 
@@ -44,9 +45,12 @@
                 <p class="text-xs text-textcolor2">{showUpdated ? readerLabel('ebookReaderUpdated') : status === 'ready' ? locationLabel : readerLabel('ebookReader')}</p>
             </div>
         </div>
-        <button class="rounded-md p-2 text-textcolor2 hover:bg-selected hover:text-primary" onclick={onClose} aria-label={readerLabel('ebookReaderClose')}>
-            <XIcon size={19} />
-        </button>
+        <div class="flex shrink-0 items-center gap-1">
+            <ReaderCustomizationPopover buttonClass="rounded-md p-2 text-textcolor2 hover:bg-selected hover:text-primary" iconSize={18} />
+            <button class="rounded-md p-2 text-textcolor2 hover:bg-selected hover:text-primary" onclick={onClose} aria-label={readerLabel('ebookReaderClose')}>
+                <XIcon size={19} />
+            </button>
+        </div>
     </div>
     <div class="mt-2 flex gap-1 overflow-x-auto pb-1">
         {#each actions as item}

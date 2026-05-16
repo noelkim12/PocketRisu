@@ -1,5 +1,5 @@
 import { getChatElementByChatIndex } from './readerSelectors'
-import type { CapturedReaderMessage, CaptureChunkResult, ChatIndex, ReaderContentButtonDescriptor, ReaderHeaderInfo } from './readerTypes'
+import type { CapturedReaderMessage, CaptureChunkResult, ChatIndex, ReaderContentButtonDescriptor, ReaderHeaderInfo, ReaderSpeakerRole } from './readerTypes'
 
 type CaptureOptions = {
     radius?: number
@@ -39,6 +39,11 @@ function parseChatIndex(row: HTMLElement): ChatIndex {
 function readTrimmedText(element: Element | null) {
     const value = element?.textContent?.trim()
     return value ? value.replace(/\s+/g, ' ') : undefined
+}
+
+function parseSpeakerRole(row: HTMLElement): ReaderSpeakerRole {
+    const role = row.getAttribute('data-chat-role')
+    return role === 'user' || role === 'char' ? role : 'unknown'
 }
 
 function findBestContentElement(row: HTMLElement): HTMLElement | null {
@@ -126,12 +131,13 @@ export async function ensureRepresentativeRow(
 
 export function extractHeaderInfo(row: HTMLElement): ReaderHeaderInfo {
     const chatIndex = parseChatIndex(row)
+    const role = parseSpeakerRole(row)
     const thumbnailUrl = row.querySelector<HTMLImageElement>('img')?.currentSrc || row.querySelector<HTMLImageElement>('img')?.src || undefined
     const name = readTrimmedText(row.querySelector('.name'))
         ?? readTrimmedText(row.querySelector('.chat-width.text-xl span'))
         ?? readTrimmedText(row.querySelector('.text-lg, .text-xl, h2'))
 
-    return { chatIndex, ...(name ? { name } : {}), ...(thumbnailUrl ? { thumbnailUrl } : {}) }
+    return { chatIndex, role, ...(name ? { name } : {}), ...(thumbnailUrl ? { thumbnailUrl } : {}) }
 }
 
 export function extractContentHtml(row: HTMLElement): string {

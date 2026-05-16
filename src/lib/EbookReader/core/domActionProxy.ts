@@ -6,6 +6,11 @@ import type { ChatIndex, ReaderAction, ReaderContentButtonDescriptor } from './r
 
 type DomProxiedReaderAction = Extract<ReaderAction, 'copy' | 'tts' | 'bookmark' | 'translate' | 'reroll' | 'unreroll' | 'remove'>
 
+const EDIT_BUTTON_SELECTOR = '.button-icon-edit'
+const EDIT_AREA_SELECTOR = '.message-edit-area'
+const EDIT_TRIGGER_MAX_ATTEMPTS = 50
+const EDIT_TRIGGER_RETRY_MS = 100
+
 export const ACTION_SELECTOR_MAP: Readonly<Record<DomProxiedReaderAction, string>> = {
     copy: '.button-icon-copy',
     tts: '.button-icon-tts',
@@ -26,6 +31,28 @@ function findActionTarget(row: HTMLElement, action: DomProxiedReaderAction): Ele
     return matches[0] ?? null
 }
 
+function triggerOriginalEdit(chatIndex: ChatIndex, root?: ParentNode | null): boolean {
+    const row = getChatElementByChatIndex(chatIndex, root)
+    const target = row?.querySelector(EDIT_BUTTON_SELECTOR)
+    if (!row || !target) return false
+
+    dispatchClick(target)
+    row.querySelector<HTMLElement>(EDIT_AREA_SELECTOR)?.focus()
+    return true
+}
+
+function scheduleOriginalEditTrigger(chatIndex: ChatIndex, root?: ParentNode | null) {
+    let attempts = 0
+
+    const tryTrigger = () => {
+        attempts += 1
+        if (triggerOriginalEdit(chatIndex, root) || attempts >= EDIT_TRIGGER_MAX_ATTEMPTS) return
+        setTimeout(tryTrigger, EDIT_TRIGGER_RETRY_MS)
+    }
+
+    setTimeout(tryTrigger, 0)
+}
+
 export function proxyReaderAction(action: ReaderAction, chatIndex: ChatIndex, root?: ParentNode | null): boolean {
     if (action === 'jumpToOriginal') {
         ebookReaderStore.open = false
@@ -35,7 +62,10 @@ export function proxyReaderAction(action: ReaderAction, chatIndex: ChatIndex, ro
 
     if (action === 'editInOriginal') {
         ebookReaderStore.open = false
-        if (chatIndex >= 0) ScrollToMessageStore.value = chatIndex
+        if (chatIndex >= 0) {
+            ScrollToMessageStore.value = chatIndex
+            scheduleOriginalEditTrigger(chatIndex, root)
+        }
         notifyInfo(language.ebookReaderEditJumpNotice)
         return true
     }

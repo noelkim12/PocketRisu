@@ -4,11 +4,12 @@
     import MobileBookViewer from './mobile/MobileBookViewer.svelte'
     import { captureChunk } from './core/chunkCapture'
     import { clampPageIndex, getNextChunkCenter, getPrevChunkCenter, getSpreadPageIndex } from './core/navigation'
-    import { observeEbookReaderChanges } from './core/observer'
+    import { observeEbookReaderChanges, observeEbookReaderGeometry } from './core/observer'
     import { DEFAULT_PAGINATION_DIMENSIONS, paginateCapturedMessages } from './core/pageManager'
     import { dispatchContentButtonAction, proxyReaderAction } from './core/domActionProxy'
     import { CONTENT_BUTTON_SELECTOR } from './core/chunkCapture'
     import { getOverlayPresentation } from './core/overlayPresentation'
+    import { getReaderPanelRect, getVisibleRect, type EbookReaderPanelRect, type EbookReaderViewportRect } from './core/overlayGeometry'
     import { normalizeEbookReaderPrefs, prefsToCssVars } from './core/preferences'
     import { getChatMessageContainerByChatIndex, getDefaultChatScreen } from './core/readerSelectors'
     import type { CaptureChunkResult, ReaderAction, ReaderHeaderInfo, ReaderPage } from './core/readerTypes'
@@ -22,12 +23,15 @@
     let updateNoticeTimer: ReturnType<typeof setTimeout> | null = null
     let anchorMeasureFrame: ReturnType<typeof requestAnimationFrame> | null = null
     let cleanupObserver: (() => void) | null = null
+    let cleanupGeometryObserver: (() => void) | null = null
     let loadGeneration = 0
     let observedMode: 'mobile' | 'desktop' | null = null
     let errorText = $state(readerLabel('ebookReaderCaptureFailed'))
     let lastReaderPreferenceSignature: string | null = null
+    let lastPaginationWidth: number | null = null
     let pendingPreferenceRefresh = false
-    let anchorRect: { top: number; left: number; width: number; height: number } | null = $state(null)
+    let pendingGeometryRefresh = false
+    let anchorRect: EbookReaderPanelRect | null = $state(null)
     let geometryChatIndex = ebookReaderStore.currentChatIndex
     let geometryAnchorElement: HTMLElement | null = null
 
@@ -64,18 +68,36 @@
         for (const container of Array.from(document.querySelectorAll('[data-ebook-reader-measure]'))) container.remove()
     }
 
-    function getVisibleRect(element: HTMLElement, visibleHost: HTMLElement | null) {
-        const rect = element.getBoundingClientRect()
-        const hostRect = visibleHost?.getBoundingClientRect()
-        const visibleTop = Math.max(rect.top, hostRect?.top ?? 0, 0)
-        const visibleLeft = Math.max(rect.left, hostRect?.left ?? 0, 0)
-        const visibleRight = Math.min(rect.right, hostRect?.right ?? window.innerWidth, window.innerWidth)
-        const visibleBottom = Math.min(rect.bottom, hostRect?.bottom ?? window.innerHeight, window.innerHeight)
-        const width = Math.max(0, visibleRight - visibleLeft)
-        const height = Math.max(0, visibleBottom - visibleTop)
+    function rectToViewportRect(rect: DOMRect): EbookReaderViewportRect {
+        return { top: rect.top, left: rect.left, right: rect.right, bottom: rect.bottom }
+    }
 
-        if (width === 0 || height === 0) return null
-        return { top: visibleTop, left: visibleLeft, width, height }
+    function getVisualViewportRect(): EbookReaderViewportRect {
+        const viewport = window.visualViewport
+        if (!viewport) return { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
+
+        return {
+            top: viewport.offsetTop,
+            left: viewport.offsetLeft,
+            right: viewport.offsetLeft + viewport.width,
+            bottom: viewport.offsetTop + viewport.height,
+        }
+    }
+
+    function getElementVisibleRect(element: HTMLElement, visibleHost: HTMLElement) {
+        return getVisibleRect(rectToViewportRect(element.getBoundingClientRect()), rectToViewportRect(visibleHost.getBoundingClientRect()))
+    }
+
+    function getPanelRect(anchor: HTMLElement, visibleHost: HTMLElement) {
+        const excludedRects = Array.from(visibleHost.querySelectorAll<HTMLElement>('[data-chat-composer-region]'))
+            .map((element) => rectToViewportRect(element.getBoundingClientRect()))
+
+        return getReaderPanelRect(
+            rectToViewportRect(anchor.getBoundingClientRect()),
+            rectToViewportRect(visibleHost.getBoundingClientRect()),
+            getVisualViewportRect(),
+            excludedRects,
+        )
     }
 
     function findVisibleMessageContainer(visibleHost: HTMLElement | null) {
@@ -83,8 +105,8 @@
         if (!host) return null
 
         const visibleContainers = Array.from(host.querySelectorAll<HTMLElement>('.chat-message-container'))
-            .map((element) => ({ element, rect: getVisibleRect(element, host) }))
-            .filter((item): item is { element: HTMLElement; rect: { top: number; left: number; width: number; height: number } } => item.rect !== null)
+            .map((element) => ({ element, rect: getElementVisibleRect(element, host) }))
+            .filter((item): item is { element: HTMLElement; rect: EbookReaderPanelRect } => item.rect !== null)
             .sort((a, b) => a.rect.top - b.rect.top)
 
         return visibleContainers[0]?.element ?? null
@@ -110,7 +132,14 @@
             return
         }
 
-        anchorRect = getVisibleRect(anchor, visibleHost)
+        anchorRect = getPanelRect(anchor, visibleHost)
+        if (!anchorRect && anchor === geometryAnchorElement) {
+            const visibleAnchor = findVisibleMessageContainer(visibleHost)
+            if (visibleAnchor && visibleAnchor !== anchor) {
+                geometryAnchorElement = visibleAnchor
+                anchorRect = getPanelRect(visibleAnchor, visibleHost)
+            }
+        }
         if (!anchorRect) closeForMissingChatContainer()
     }
 
@@ -122,11 +151,34 @@
         })
     }
 
+    function getPaginationWidth() {
+        if (!anchorRect) measureAnchorRect()
+        const fallbackWidth = DEFAULT_PAGINATION_DIMENSIONS.width
+        const panelWidth = anchorRect?.width ?? window.visualViewport?.width ?? window.innerWidth ?? fallbackWidth
+        const readableWidth = isMobile ? panelWidth : Math.max((panelWidth - 12) / 2, 1)
+        return Math.max(Math.round((readableWidth * readerPrefs.pageWidth) / 100), 1)
+    }
+
+    function refreshForGeometryChange(nextPaginationWidth: number) {
+        if (lastPaginationWidth === null || nextPaginationWidth === lastPaginationWidth) {
+            pendingGeometryRefresh = false
+            return
+        }
+
+        if (!currentChunk || ebookReaderStore.status !== 'ready') {
+            pendingGeometryRefresh = true
+            return
+        }
+
+        pendingGeometryRefresh = false
+        void refreshCurrentChunk()
+    }
+
     function setVisibleChatIndex(pageIndex: number) {
         const page = pages[clampPageIndex(pageIndex, pages.length)]
         if (!page) return
         ebookReaderStore.currentChatIndex = page.chatIndex
-        headerInfo = currentChunk?.capturedMessages.find((message) => message.chatIndex === page.chatIndex)?.headerInfo ?? headerInfo
+        headerInfo = page.headerInfo
     }
 
     type ChunkTargetPage = 'first' | 'last' | 'centerFirst' | number
@@ -161,11 +213,13 @@
 
             ebookReaderStore.status = 'paginating'
             await tick()
+            const paginationWidth = getPaginationWidth()
             const nextPages = paginateCapturedMessages(captured.capturedMessages, {
-                dimensions: { width: readerPrefs.pageWidth, height: DEFAULT_PAGINATION_DIMENSIONS.height },
+                dimensions: { width: paginationWidth, height: DEFAULT_PAGINATION_DIMENSIONS.height },
                 measurementStyle: {
                     fontSize: `${readerPrefs.fontSize}px`,
                     lineHeight: `${readerPrefs.lineHeight}`,
+                    paragraphSpacing: `${readerPrefs.paragraphSpacing * readerPrefs.fontSize}px`,
                     fontFamily: readerPrefs.fontFamily,
                 },
                 mode: isMobile ? 'mobile' : 'desktop',
@@ -174,7 +228,8 @@
 
             pages = nextPages
             currentChunk = captured
-            headerInfo = captured.capturedMessages[0]?.headerInfo ?? null
+            lastPaginationWidth = paginationWidth
+            headerInfo = nextPages[0]?.headerInfo ?? captured.capturedMessages[0]?.headerInfo ?? null
             const rawTarget = resolveTargetPageIndex(targetPage, nextPages, center)
             ebookReaderStore.currentPageIndex = isMobile
                 ? clampPageIndex(rawTarget, nextPages.length)
@@ -271,6 +326,65 @@
         return Number.isFinite(parsed) ? parsed : null
     }
 
+    type ReaderPopoverElement = HTMLElement & {
+        showPopover?: () => void
+        hidePopover?: () => void
+    }
+
+    function isReaderPopoverElement(element: HTMLElement | null): element is ReaderPopoverElement {
+        return element?.getAttribute('data-ebook-reader-popover') === 'true'
+    }
+
+    function closeReaderPopovers(except?: HTMLElement) {
+        for (const popover of Array.from(document.querySelectorAll<ReaderPopoverElement>('[data-ebook-reader-popover="true"]'))) {
+            if (popover === except || !popover.matches(':popover-open')) continue
+            popover.hidePopover?.()
+        }
+    }
+
+    function clampPosition(value: number, min: number, max: number) {
+        return Math.min(Math.max(value, min), Math.max(min, max))
+    }
+
+    function positionReaderPopover(popover: HTMLElement, invoker: HTMLElement) {
+        const margin = 8
+        const invokerRect = invoker.getBoundingClientRect()
+        const popoverRect = popover.getBoundingClientRect()
+        const left = clampPosition(invokerRect.left, margin, window.innerWidth - popoverRect.width - margin)
+        const top = clampPosition(invokerRect.bottom + margin, margin, window.innerHeight - popoverRect.height - margin)
+
+        popover.style.position = 'fixed'
+        popover.style.inset = 'auto'
+        popover.style.left = `${left}px`
+        popover.style.top = `${top}px`
+        popover.style.maxWidth = `calc(100vw - ${margin * 2}px)`
+        popover.style.maxHeight = `calc(100vh - ${margin * 2}px)`
+    }
+
+    function handleReaderPopoverInvoker(target: HTMLElement, event: MouseEvent) {
+        if (!target.hasAttribute('popovertarget')) return false
+        if (target.hasAttribute('risu-btn') || target.hasAttribute('risu-trigger')) return false
+
+        const popoverId = target.getAttribute('popovertarget')
+        const popover = popoverId ? document.getElementById(popoverId) : null
+        if (!isReaderPopoverElement(popover)) return false
+
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+
+        if (popover.matches(':popover-open')) {
+            popover.hidePopover?.()
+            return true
+        }
+
+        closeReaderPopovers(popover)
+        positionReaderPopover(popover, target)
+        popover.showPopover?.()
+        requestAnimationFrame(() => positionReaderPopover(popover, target))
+        return true
+    }
+
     function handleContentButtonClick(event: MouseEvent) {
         const target = event.target instanceof Element
             ? event.target.closest<HTMLElement>('[data-ebook-reader-content-button="true"]')
@@ -278,9 +392,13 @@
         if (!target) return false
         if (!target.matches(CONTENT_BUTTON_SELECTOR)) return false
 
+        if (handleReaderPopoverInvoker(target, event)) return true
+
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation()
+
+        closeReaderPopovers()
 
         const chatIndex = parseContentButtonNumber(target.getAttribute('data-ebook-reader-chat-index'))
         const ordinal = parseContentButtonNumber(target.getAttribute('data-ebook-reader-button-ordinal'))
@@ -331,11 +449,26 @@
         void refreshCurrentChunk()
     })
 
+    $effect(() => {
+        const measuredAnchorRect = anchorRect
+        if (!measuredAnchorRect) return
+        refreshForGeometryChange(getPaginationWidth())
+    })
+
+    $effect(() => {
+        if (!pendingGeometryRefresh || !currentChunk || ebookReaderStore.status !== 'ready') return
+        pendingGeometryRefresh = false
+        refreshForGeometryChange(getPaginationWidth())
+    })
+
     onMount(() => {
         window.addEventListener('keydown', handleKeydown)
         window.addEventListener('resize', scheduleAnchorMeasure)
         window.addEventListener('scroll', scheduleAnchorMeasure, true)
+        window.visualViewport?.addEventListener('resize', scheduleAnchorMeasure)
+        window.visualViewport?.addEventListener('scroll', scheduleAnchorMeasure)
         cleanupObserver = observeEbookReaderChanges({ onRefresh: () => void refreshCurrentChunk(), onNotify: notifyUpdated })
+        cleanupGeometryObserver = observeEbookReaderGeometry({ onMeasure: scheduleAnchorMeasure })
         scheduleAnchorMeasure()
         void loadChunk(ebookReaderStore.currentChatIndex, 'centerFirst')
     })
@@ -344,8 +477,12 @@
         window.removeEventListener('keydown', handleKeydown)
         window.removeEventListener('resize', scheduleAnchorMeasure)
         window.removeEventListener('scroll', scheduleAnchorMeasure, true)
+        window.visualViewport?.removeEventListener('resize', scheduleAnchorMeasure)
+        window.visualViewport?.removeEventListener('scroll', scheduleAnchorMeasure)
         if (anchorMeasureFrame !== null) cancelAnimationFrame(anchorMeasureFrame)
         anchorMeasureFrame = null
+        cleanupGeometryObserver?.()
+        cleanupGeometryObserver = null
         cleanupObserver?.()
         cleanupObserver = null
         if (updateNoticeTimer) clearTimeout(updateNoticeTimer)
@@ -409,12 +546,12 @@
     }
 
     .ebook-reader-overlay[data-ebook-reader-appearance="sepia"] {
-        --ebook-reader-surface-bg: var(--risu-theme-secondary-100);
-        --ebook-reader-panel-bg: var(--risu-theme-secondary-50);
-        --ebook-reader-border: var(--risu-theme-secondary-300);
-        --ebook-reader-text: var(--risu-theme-secondary-900);
-        --ebook-reader-muted: var(--risu-theme-secondary-700);
-        --ebook-reader-accent-surface: var(--risu-theme-secondary-200);
+        --ebook-reader-surface-bg: #f3ead7;
+        --ebook-reader-panel-bg: #fbf3e3;
+        --ebook-reader-border: #d8c19d;
+        --ebook-reader-text: #4b3826;
+        --ebook-reader-muted: #7a6245;
+        --ebook-reader-accent-surface: #ead8b8;
     }
 
     .ebook-reader-overlay :global([role="dialog"]),
@@ -464,6 +601,95 @@
     .ebook-reader-overlay :global(.chattext *) {
         font-family: inherit;
         line-height: inherit;
+    }
+
+    .ebook-reader-overlay :global(.chattext p) {
+        margin: 0;
+    }
+
+    .ebook-reader-overlay :global(.chattext p + p) {
+        margin-top: var(--ebook-reader-paragraph-spacing);
+    }
+
+    .ebook-reader-overlay :global([data-ebook-reader-content-button="true"]) {
+        position: relative;
+        z-index: 20;
+        pointer-events: auto;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image) {
+        box-sizing: border-box;
+        display: flex;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img)) {
+        display: flex;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) > *) {
+        box-sizing: border-box;
+        min-width: 0;
+        min-height: 0;
+        max-width: 100%;
+        height: 100%;
+        max-height: 100%;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) figure),
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-image-container),
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-risu-inlay-image) {
+        box-sizing: border-box;
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) :is(div, figure, button, a, span):has(img)) {
+        box-sizing: border-box;
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) button:has(img)) {
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body img) {
+        display: block;
+        flex-shrink: 1;
+        max-width: 100% !important;
+        max-height: 100% !important;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        object-position: center !important;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body img.root-loaded-image-dynamic),
+    .ebook-reader-overlay :global(.ebook-reader-page-body img.root-loaded-image-dynamic:hover) {
+        width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        object-fit: contain !important;
+        object-position: center !important;
+        transition: filter var(--risu-animation-speed), opacity var(--risu-animation-speed);
     }
 
     .ebook-reader-overlay.ebook-reader-blur-images :global(.chattext img) {

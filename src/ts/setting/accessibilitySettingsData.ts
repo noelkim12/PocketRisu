@@ -7,6 +7,7 @@
 import type { SettingItem } from './types';
 import { language } from "src/lang";
 import { getCurrentChat, getDatabase, loadTogglesFromChat } from '../storage/database.svelte';
+import { PAGE_WIDTH_PERCENT_MAX, PAGE_WIDTH_PERCENT_MIN, PAGE_WIDTH_PERCENT_STEP } from 'src/lib/EbookReader/core/preferences';
 
 export const accessibilitySettingsItems: SettingItem[] = [
     // Checkboxes
@@ -130,6 +131,14 @@ export const accessibilitySettingsItems: SettingItem[] = [
                     keywords: ['ebook', 'reader', 'line', 'height'],
                 },
                 {
+                    id: 'acc.ebookReaderParagraphSpacing',
+                    type: 'slider',
+                    labelKey: 'ebookReaderParagraphSpacing',
+                    bindPath: 'ebookReaderPrefs.paragraphSpacing',
+                    options: { min: 0, max: 1.5, step: 0.05, fixed: 2 },
+                    keywords: ['ebook', 'reader', 'paragraph', 'spacing', 'leading'],
+                },
+                {
                     id: 'acc.ebookReaderFontFamily',
                     type: 'select',
                     labelKey: 'ebookReaderFontFamily',
@@ -149,7 +158,7 @@ export const accessibilitySettingsItems: SettingItem[] = [
                     type: 'slider',
                     labelKey: 'ebookReaderPageWidth',
                     bindPath: 'ebookReaderPrefs.pageWidth',
-                    options: { min: 560, max: 1200, step: 20, customText: (value) => `${value}px` },
+                    options: { min: PAGE_WIDTH_PERCENT_MIN, max: PAGE_WIDTH_PERCENT_MAX, step: PAGE_WIDTH_PERCENT_STEP, customText: (value) => `${value}%` },
                     keywords: ['ebook', 'reader', 'page', 'width'],
                 },
                 {

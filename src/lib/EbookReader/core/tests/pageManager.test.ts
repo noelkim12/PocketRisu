@@ -6,7 +6,7 @@ function message(chatIndex: number, html: string): CapturedReaderMessage {
     return {
         chatIndex,
         html,
-        headerInfo: { chatIndex },
+        headerInfo: { chatIndex, role: chatIndex % 2 === 0 ? 'user' : 'char' },
         contentHash: `hash-${chatIndex}`,
     }
 }
@@ -44,6 +44,7 @@ describe('ebook reader page manager', () => {
 
         expect(pages.length).toBeGreaterThan(1)
         expect(pages.every((page) => page.chatIndex === 7)).toBe(true)
+        expect(pages.every((page) => page.headerInfo.role === 'char')).toBe(true)
         expect(pages.map((page) => page.pageIndex)).toEqual(pages.map((_, index) => index))
         expect(document.querySelectorAll('[data-ebook-reader-measure]')).toHaveLength(0)
     })
@@ -82,6 +83,7 @@ describe('ebook reader page manager', () => {
             measurementStyle: {
                 fontSize: '21px',
                 lineHeight: '1.9',
+                paragraphSpacing: '10px',
                 fontFamily: 'Georgia, serif',
             },
             measureText: () => {
@@ -91,14 +93,39 @@ describe('ebook reader page manager', () => {
                     container?.style.height,
                     container?.style.fontSize,
                     container?.style.lineHeight,
+                    container?.dataset.ebookReaderParagraphSpacing,
                     container?.style.fontFamily,
                 ].join('|'))
                 return 12
             },
         })
 
-        expect(observedStyles).toContain('840px|300px|21px|1.9|Georgia, serif')
+        expect(observedStyles).toContain('840px|300px|21px|1.9|10px|Georgia, serif')
         expect(document.querySelectorAll('[data-ebook-reader-measure]')).toHaveLength(0)
+    })
+
+    it('includes configured spacing between consecutive paragraphs during measurement', () => {
+        const pages = paginateCapturedMessages([
+            message(8, '<p>first paragraph</p><p>second paragraph</p>'),
+        ], {
+            dimensions: { width: 320, height: 46 },
+            measurementStyle: { fontSize: '16px', lineHeight: '1.5', paragraphSpacing: '10px' },
+            measureText: () => 6,
+        })
+
+        expect(pages).toHaveLength(2)
+    })
+
+    it('reserves conservative bottom space to avoid clipped page text', () => {
+        const pages = paginateCapturedMessages([
+            message(9, '<p>alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu</p>'),
+        ], {
+            dimensions: { width: 320, height: 64 },
+            measurementStyle: { paragraphSpacing: '10px' },
+            measureText: (element) => (element.textContent ?? '').length <= 24 ? 12 : 60,
+        })
+
+        expect(pages.length).toBeGreaterThan(1)
     })
 
     it('preserves whitespace across sentence boundaries when splitting paragraphs', () => {

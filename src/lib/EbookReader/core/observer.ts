@@ -8,6 +8,11 @@ export type EbookReaderObserverOptions = {
     onNotify?: () => void
 }
 
+export type EbookReaderGeometryObserverOptions = {
+    root?: ParentNode | null
+    onMeasure: () => void
+}
+
 const DEFAULT_DEBOUNCE_MS = 250
 const DEFAULT_NOTIFY_THROTTLE_MS = 2000
 const OBSERVER_OPTIONS: MutationObserverInit = {
@@ -52,6 +57,21 @@ export function observeEbookReaderChanges(options: EbookReaderObserverOptions): 
     return () => {
         observer.disconnect()
         clearRefreshTimer()
+    }
+}
+
+export function observeEbookReaderGeometry(options: EbookReaderGeometryObserverOptions): () => void {
+    const target = getDefaultChatScreen(options.root ?? document)
+    if (!target || !globalThis.ResizeObserver) return () => undefined
+
+    const observer = new ResizeObserver(() => {
+        options.onMeasure()
+    })
+
+    observer.observe(target)
+
+    return () => {
+        observer.disconnect()
     }
 }
 

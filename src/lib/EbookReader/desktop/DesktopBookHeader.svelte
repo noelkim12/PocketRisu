@@ -1,5 +1,6 @@
 <script lang="ts">
     import { BookOpenIcon, CopyIcon, HeadphonesIcon, LanguagesIcon, MessageSquareIcon, PencilIcon, RefreshCcwIcon, RotateCcwIcon, Trash2Icon, BookmarkIcon, XIcon } from '@lucide/svelte'
+    import ReaderCustomizationPopover from '../ReaderCustomizationPopover.svelte'
     import type { ReaderAction, ReaderHeaderInfo, EbookReaderStatus } from '../core/readerTypes'
     import { readerLabel } from '../readerLanguage'
 
@@ -64,8 +65,9 @@
                 <Icon size={17} />
             </button>
         {/each}
+        <ReaderCustomizationPopover buttonClass="ml-2 rounded-md p-2 text-textcolor2 transition-colors hover:bg-selected hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-selected" iconSize={17} />
         <button
-            class="ml-2 rounded-md p-2 text-textcolor2 transition-colors hover:bg-selected hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-selected"
+            class="rounded-md p-2 text-textcolor2 transition-colors hover:bg-selected hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-selected"
             onclick={onClose}
             aria-label={readerLabel('ebookReaderClose')}
         >

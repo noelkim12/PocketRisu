@@ -198,7 +198,9 @@
     })
 
     onDestroy(()=>{
-        unsubscribers.forEach(u => u())
+        for (const unsubscribe of unsubscribers) {
+            unsubscribe()
+        }
     })
 
     function RenderGUIHtml(html:string){
@@ -290,7 +292,7 @@
             if (newName && newName.trim() !== '') {
                 chat.bookmarkNames[messageId] = newName;
             } else {
-                let defaultName;
+                let defaultName = '';
 
                 const blacklist = ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-', '=', '[', ']', '{', '}', '|', ';', ':', '"', "'", ',', '.', '<', '>', '/', '?'];
                 let lines = messageContent.split('\n');
@@ -1081,6 +1083,7 @@
 <!-- NodeOnly Standard: 전용 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      data-chat-index={idx}
+     data-chat-role={role === 'user' || role === 'char' ? role : 'unknown'}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
@@ -1130,6 +1133,7 @@
 <!-- 기존 테마: 공유 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      data-chat-index={idx}
+     data-chat-role={role === 'user' || role === 'char' ? role : 'unknown'}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>

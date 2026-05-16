@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { proxyReaderAction } from '../domActionProxy'
 import { ebookReaderStore, ScrollToMessageStore } from '../../../../ts/stores.svelte'
 
@@ -35,6 +35,10 @@ describe('ebook reader DOM action proxy', () => {
         ebookReaderStore.currentChatIndex = 0
         ScrollToMessageStore.value = -1
         notifyInfoMock.mockClear()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
     })
 
     it('dispatches copy through the first scoped copy button click event', () => {
@@ -91,11 +95,19 @@ describe('ebook reader DOM action proxy', () => {
         expect(ScrollToMessageStore.value).toBe(12)
     })
 
-    it('closes reader, scrolls, and notifies before editing in the original chat', () => {
+    it('closes reader, scrolls, notifies, and triggers edit in the original chat', () => {
+        vi.useFakeTimers()
+        document.body.innerHTML = `<section class="default-chat-screen">${row(5, '<button class="button-icon-edit">edit</button><textarea class="message-edit-area"></textarea>')}</section>`
+        const editButton = document.querySelector<HTMLButtonElement>('.button-icon-edit')
+        const edit = vi.fn()
+        editButton?.addEventListener('click', edit)
+
         expect(proxyReaderAction('editInOriginal', 5)).toBe(true)
+        vi.runOnlyPendingTimers()
 
         expect(ebookReaderStore.open).toBe(false)
         expect(ScrollToMessageStore.value).toBe(5)
         expect(notifyInfoMock).toHaveBeenCalledWith('Jumped to edit')
+        expect(edit).toHaveBeenCalledTimes(1)
     })
 })

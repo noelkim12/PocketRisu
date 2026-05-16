@@ -16,9 +16,9 @@ function setRect(element: Element, rect: Partial<DOMRect>) {
     } as DOMRect)
 }
 
-function row(index: number, html: string, chatId = `chat-${index}`) {
+function row(index: number, html: string, chatId = `chat-${index}`, role = 'char') {
     return `
-        <article class="risu-chat" data-chat-index="${index}" data-chat-id="${chatId}">
+        <article class="risu-chat" data-chat-index="${index}" data-chat-role="${role}" data-chat-id="${chatId}">
             <div class="header"><img src="/thumb-${index}.png" alt=""><span class="name">Name ${index}</span></div>
             <div class="message-content">${html}</div>
             <div class="toolbar"><button>copy</button></div>
@@ -90,10 +90,19 @@ describe('ebook reader chunk capture', () => {
         expect(result.requestedIndices).toEqual([-1, 0])
         expect(result.capturedMessages.map(message => message.chatIndex)).toEqual([-1, 0])
         expect(result.capturedMessages[0].chatId).toBe('first')
+        expect(result.capturedMessages[0].headerInfo.role).toBe('char')
         expect(result.missingIndices).toEqual([])
         expect(result.partial).toBe(false)
         expect(result.startIndex).toBe(-1)
         expect(result.endIndex).toBe(0)
+    })
+
+    it('captures speaker role from chat DOM attributes', async () => {
+        document.body.innerHTML = `<section class="default-chat-screen">${row(0, '<p>User turn</p>', 'user-chat', 'user')}${row(1, '<p>Character turn</p>', 'char-chat', 'char')}</section>`
+
+        const result = await captureChunk(0, 2, { radius: 1, timeoutMs: 0 })
+
+        expect(result.capturedMessages.map(message => message.headerInfo.role)).toEqual(['user', 'char'])
     })
 
     it('marks chunks partial when requested rows are missing', async () => {

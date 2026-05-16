@@ -25,6 +25,7 @@
     let rootElement: HTMLElement | null = $state(null)
     let detachSwipe: (() => void) | null = null
     let page = $derived(pages[currentPageIndex] ?? null)
+    let previousPage = $derived(pages[currentPageIndex - 1] ?? null)
     let pageLabel = $derived(pages.length > 0 ? `${currentPageIndex + 1} / ${pages.length}` : readerLabel('ebookReader'))
     let chatIndexLabel = $derived(page ? `ChatIndex ${page.chatIndex}` : '')
 
@@ -41,7 +42,7 @@
 
 <div bind:this={rootElement} class="flex h-full w-full flex-col overflow-hidden bg-darkbg text-textcolor" {role} aria-modal={ariaModal} aria-labelledby="ebook-reader-title">
     <MobileBookHeader {header} {status} {pageLabel} {chatIndexLabel} {showUpdated} {onAction} {onClose} />
-    <MobileBookPage {page} {status} {errorMessage} />
+    <MobileBookPage {page} {previousPage} {status} {errorMessage} />
     <footer class="flex items-center justify-between border-t border-darkborderc bg-darkbg px-4 py-3">
         <button class="rounded-md border border-darkborderc px-4 py-2 text-sm text-textcolor2 hover:bg-selected hover:text-primary" onclick={onPrevious}>{readerLabel('ebookReaderPreviousPage')}</button>
         <span class="text-xs text-textcolor2">{pageLabel}</span>

@@ -12,7 +12,7 @@ const DESKTOP_SHELL_CLASS = [
     'ebook-reader-overlay',
     'fixed',
     'inset-0',
-    'z-50',
+    'z-10',
     'pointer-events-none',
     'flex',
 ].join(' ')
@@ -28,7 +28,7 @@ const MOBILE_SHELL_CLASS = [
     'ebook-reader-overlay',
     'fixed',
     'inset-0',
-    'z-50',
+    'z-10',
     'pointer-events-none',
 ].join(' ')
 

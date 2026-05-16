@@ -7,8 +7,9 @@ describe('ebook reader preferences', () => {
             appearance: 'system',
             fontSize: 16,
             lineHeight: 1.65,
+            paragraphSpacing: 0.65,
             fontFamily: 'inherit',
-            pageWidth: 900,
+            pageWidth: 75,
             blurImages: false,
         })
         expect(normalizeEbookReaderPrefs(undefined)).toEqual(defaultEbookReaderPrefs)
@@ -18,21 +19,41 @@ describe('ebook reader preferences', () => {
         expect(normalizeEbookReaderPrefs({
             fontSize: -10,
             lineHeight: Number.NaN,
+            paragraphSpacing: Number.NaN,
             pageWidth: Number.POSITIVE_INFINITY,
         })).toMatchObject({
             fontSize: 12,
             lineHeight: 1.65,
-            pageWidth: 1200,
+            paragraphSpacing: 0.65,
+            pageWidth: 100,
         })
 
         expect(normalizeEbookReaderPrefs({
             fontSize: 200,
             lineHeight: 0.1,
-            pageWidth: 100,
+            paragraphSpacing: -1,
+            pageWidth: 10,
         })).toMatchObject({
             fontSize: 28,
             lineHeight: 1.2,
-            pageWidth: 560,
+            paragraphSpacing: 0,
+            pageWidth: 50,
+        })
+
+        expect(normalizeEbookReaderPrefs({ pageWidth: 900 })).toMatchObject({
+            pageWidth: 75,
+        })
+
+        expect(normalizeEbookReaderPrefs({ pageWidth: 560 })).toMatchObject({
+            pageWidth: 50,
+        })
+
+        expect(normalizeEbookReaderPrefs({ pageWidth: 1200 })).toMatchObject({
+            pageWidth: 100,
+        })
+
+        expect(normalizeEbookReaderPrefs({ paragraphSpacing: 99 })).toMatchObject({
+            paragraphSpacing: 1.5,
         })
 
         expect(clamp(16, 12, 28)).toBe(16)
@@ -78,14 +99,16 @@ describe('ebook reader preferences', () => {
             appearance: 'light',
             fontSize: 18,
             lineHeight: 1.8,
+            paragraphSpacing: 0.8,
             fontFamily: 'serif',
-            pageWidth: 720,
+            pageWidth: 80,
             blurImages: true,
         })).toEqual({
             '--ebook-reader-font-size': '18px',
             '--ebook-reader-line-height': '1.8',
+            '--ebook-reader-paragraph-spacing': '0.8em',
             '--ebook-reader-font-family': 'serif',
-            '--ebook-reader-page-width': '720px',
+            '--ebook-reader-page-width': '80%',
             '--ebook-reader-image-filter': 'blur(8px)',
         })
     })

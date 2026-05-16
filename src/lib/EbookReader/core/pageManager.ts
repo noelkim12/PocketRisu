@@ -6,6 +6,7 @@ export type PaginationDimensions = { width: number; height: number }
 export type PaginationMeasurementStyle = {
     fontSize?: string
     lineHeight?: string
+    paragraphSpacing?: string
     fontFamily?: string
 }
 
@@ -19,6 +20,7 @@ export type PaginationOptions = {
 export const DEFAULT_PAGINATION_DIMENSIONS: PaginationDimensions = { width: 720, height: 640 }
 const DELEGATION_ATTRIBUTE_SELECTOR = '[data-ebook-reader-content-button], [data-ebook-reader-chat-index], [data-ebook-reader-button-ordinal]'
 const DELEGATION_ATTRIBUTES = ['data-ebook-reader-content-button', 'data-ebook-reader-chat-index', 'data-ebook-reader-button-ordinal']
+const READER_POPOVER_ATTRIBUTE = 'data-ebook-reader-popover'
 const BLOCK_ELEMENTS = new Set([
     'p', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'blockquote', 'pre', 'hr',
     'details', 'figure', 'section', 'article', 'header', 'footer', 'nav', 'aside', 'title',
@@ -75,6 +77,8 @@ export function annotateContentButtons(html: string, chatIndex: number): string 
         for (const attribute of DELEGATION_ATTRIBUTES) element.removeAttribute(attribute)
     }
 
+    retargetPopoverControls(container, chatIndex)
+
     Array.from(container.querySelectorAll<HTMLElement>(CONTENT_BUTTON_SELECTOR)).forEach((button, ordinal) => {
         button.setAttribute('data-ebook-reader-content-button', 'true')
         button.setAttribute('data-ebook-reader-chat-index', String(chatIndex))
@@ -82,6 +86,32 @@ export function annotateContentButtons(html: string, chatIndex: number): string 
     })
 
     return container.innerHTML
+}
+
+function retargetPopoverControls(container: HTMLElement, chatIndex: number) {
+    const targetsById = new Map<string, HTMLElement>()
+    for (const target of Array.from(container.querySelectorAll<HTMLElement>('[id][popover]'))) {
+        if (!isReaderManagedPopover(target)) continue
+        const id = target.id
+        if (id) targetsById.set(id, target)
+    }
+
+    const idMap = new Map<string, string>()
+    for (const control of Array.from(container.querySelectorAll<HTMLElement>('[popovertarget]'))) {
+        const oldId = control.getAttribute('popovertarget') ?? ''
+        const target = targetsById.get(oldId)
+        if (!target) continue
+
+        const newId = idMap.get(oldId) ?? `ebook-reader-popover-${chatIndex}-${idMap.size}`
+        idMap.set(oldId, newId)
+        control.setAttribute('popovertarget', newId)
+        target.id = newId
+        target.setAttribute(READER_POPOVER_ATTRIBUTE, 'true')
+    }
+}
+
+function isReaderManagedPopover(target: HTMLElement) {
+    return target.classList.contains('x-risu-lb-xnai-menu')
 }
 
 export function paginateCapturedMessages(messages: CapturedReaderMessage[], options: PaginationOptions = {}): ReaderPage[] {
@@ -104,7 +134,7 @@ export function paginateCapturedMessages(messages: CapturedReaderMessage[], opti
             const pageHtmls = splitIntoPageHtml(content, measureContainer, textSplitter, measureElement)
             for (const html of pageHtmls) {
                 if (html.trim() === '') continue
-                pages.push({ pageIndex: pages.length, chatIndex: message.chatIndex, html })
+                pages.push({ pageIndex: pages.length, chatIndex: message.chatIndex, headerInfo: message.headerInfo, html })
             }
         }
 
@@ -133,6 +163,7 @@ function createMeasureContainer(dimensions: PaginationDimensions, measurementSty
     ].join(';')
     if (measurementStyle.fontSize) container.style.fontSize = measurementStyle.fontSize
     if (measurementStyle.lineHeight) container.style.lineHeight = measurementStyle.lineHeight
+    if (measurementStyle.paragraphSpacing) container.dataset.ebookReaderParagraphSpacing = measurementStyle.paragraphSpacing
     if (measurementStyle.fontFamily) container.style.fontFamily = measurementStyle.fontFamily
     document.body.appendChild(container)
     return container
@@ -146,7 +177,7 @@ function splitIntoPageHtml(
 ): string[] {
     const pages: string[] = []
     let currentPageContent: HTMLElement[] = []
-    const availableHeight = getAvailableHeight(measureContainer)
+    const availableHeight = getSafeAvailableHeight(measureContainer)
 
     const pushCurrentPage = () => {
         if (currentPageContent.length === 0) return
@@ -201,14 +232,27 @@ function isSeparatePageBlock(element: HTMLElement): boolean {
 function measureElements(elements: HTMLElement[], measureContainer: HTMLElement, measureElement: (element: HTMLElement) => number): number {
     measureContainer.innerHTML = ''
     let totalHeight = 0
+    let previousElement: HTMLElement | null = null
 
     for (const element of elements) {
         const clone = element.cloneNode(true) as HTMLElement
         measureContainer.appendChild(clone)
+        if (previousElement && isParagraphElement(previousElement) && isParagraphElement(clone)) totalHeight += getParagraphSpacingPx(measureContainer)
         totalHeight += measureElement(clone)
+        previousElement = clone
     }
 
     return totalHeight
+}
+
+function isParagraphElement(element: HTMLElement): boolean {
+    return element.tagName.toLowerCase() === 'p'
+}
+
+function getParagraphSpacingPx(measureContainer: HTMLElement): number {
+    const rawValue = measureContainer.dataset.ebookReaderParagraphSpacing
+    if (!rawValue) return 0
+    return Number.parseFloat(rawValue) || 0
 }
 
 function measureSingleElement(element: HTMLElement, options: PaginationOptions): number {
@@ -224,9 +268,20 @@ function measureSingleElement(element: HTMLElement, options: PaginationOptions):
     return Math.max(16, Math.ceil(textLength / 80) * 20)
 }
 
-function getAvailableHeight(measureContainer: HTMLElement): number {
+function getSafeAvailableHeight(measureContainer: HTMLElement): number {
     const styleHeight = Number.parseFloat(measureContainer.style.height)
-    return measureContainer.clientHeight || styleHeight || DEFAULT_PAGINATION_DIMENSIONS.height
+    const rawHeight = measureContainer.clientHeight || styleHeight || DEFAULT_PAGINATION_DIMENSIONS.height
+    const safetyReserve = Math.ceil(getLineHeightPx(measureContainer) + getParagraphSpacingPx(measureContainer) + 8)
+    return Math.max(16, rawHeight - safetyReserve)
+}
+
+function getLineHeightPx(measureContainer: HTMLElement): number {
+    const style = window.getComputedStyle(measureContainer)
+    const fontSize = Number.parseFloat(style.fontSize) || Number.parseFloat(measureContainer.style.fontSize) || 16
+    const lineHeight = Number.parseFloat(style.lineHeight || measureContainer.style.lineHeight)
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) return fontSize * 1.2
+    if (style.lineHeight.endsWith('px') || measureContainer.style.lineHeight.endsWith('px')) return lineHeight
+    return lineHeight * fontSize
 }
 
 function createPageHtml(elements: HTMLElement[]): string {

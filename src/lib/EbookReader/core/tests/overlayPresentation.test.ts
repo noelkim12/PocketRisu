@@ -6,7 +6,7 @@ describe('ebook reader overlay presentation', () => {
         const presentation = getOverlayPresentation('desktop')
 
         expect(presentation.shellClass).toContain('pointer-events-none')
-        expect(presentation.shellClass).toContain('z-50')
+        expect(presentation.shellClass).toContain('z-10')
         expect(presentation.shellClass).not.toContain('bg-black/60')
         expect(presentation.shellClass).not.toContain('backdrop-blur-sm')
         expect(presentation.panelClass).toContain('absolute')
@@ -22,7 +22,7 @@ describe('ebook reader overlay presentation', () => {
         const presentation = getOverlayPresentation('mobile')
 
         expect(presentation.shellClass).toContain('fixed inset-0')
-        expect(presentation.shellClass).toContain('z-50')
+        expect(presentation.shellClass).toContain('z-10')
         expect(presentation.shellClass).toContain('pointer-events-none')
         expect(presentation.shellClass).not.toContain('bg-darkbg')
         expect(presentation.panelClass).toContain('absolute')
