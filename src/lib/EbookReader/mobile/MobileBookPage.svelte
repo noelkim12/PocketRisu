@@ -13,6 +13,7 @@
     let { page = null, previousPage = null, status, errorMessage }: Props = $props()
     let showSpeaker = $derived(Boolean(page && previousPage?.chatIndex !== page.chatIndex))
     let pageContainsImage = $derived(Boolean(page?.html.includes('<img')))
+    let pageIsScrollable = $derived(page?.overflowMode === 'scrollable')
 </script>
 
 <article class="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg p-3">
@@ -21,7 +22,7 @@
             {#if showSpeaker}
                 <SpeakerStrip header={page.headerInfo} />
             {/if}
-            <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={pageContainsImage}>
+            <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={pageContainsImage} class:ebook-reader-page-body-scrollable={pageIsScrollable}>
                 {@html page.html}
             </div>
         {:else if status === 'error'}

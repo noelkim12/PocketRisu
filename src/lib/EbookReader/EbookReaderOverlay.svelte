@@ -641,6 +641,17 @@
         max-height: 100%;
     }
 
+    .ebook-reader-overlay :global(.ebook-reader-page-body-scrollable) {
+        overflow: auto !important;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+    }
+
+    .ebook-reader-overlay :global(.ebook-reader-page-body-scrollable > *) {
+        box-sizing: border-box;
+        max-width: 100%;
+    }
+
     .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) figure),
     .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-image-container),
     .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-risu-inlay-image) {

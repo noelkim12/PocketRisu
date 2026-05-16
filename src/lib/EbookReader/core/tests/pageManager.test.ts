@@ -64,6 +64,22 @@ describe('ebook reader page manager', () => {
         expect(pages[2].html).toContain('<details')
     })
 
+    it('treats rich status widgets as scrollable separate pages', () => {
+        const pages = paginateCapturedMessages([
+            message(6, '<p>intro</p><div class="x-risu-dos-status"><style>.x-risu-dos-status{max-width:480px}</style><div>status panel</div><button type="button">action</button></div><p>outro</p>'),
+        ], {
+            dimensions: { width: 320, height: 200 },
+            mode: 'mobile',
+            measureText: () => 12,
+        })
+
+        expect(pages).toHaveLength(3)
+        expect(pages[1].html).toContain('x-risu-dos-status')
+        expect(pages[1].overflowMode).toBe('scrollable')
+        expect(pages[0].overflowMode).toBeUndefined()
+        expect(pages[2].overflowMode).toBeUndefined()
+    })
+
     it('removes measure containers when pagination measurement fails', () => {
         expect(() => paginateCapturedMessages([message(1, '<p>boom</p>')], {
             dimensions: { width: 320, height: 30 },

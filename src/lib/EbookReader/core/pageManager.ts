@@ -1,6 +1,6 @@
 import { createTextSplitter, type ReaderMode } from './textSplitter'
 import { CONTENT_BUTTON_SELECTOR } from './chunkCapture'
-import type { CapturedReaderMessage, ReaderPage } from './readerTypes'
+import type { CapturedReaderMessage, ReaderPage, ReaderPageOverflowMode } from './readerTypes'
 
 export type PaginationDimensions = { width: number; height: number }
 export type PaginationMeasurementStyle = {
@@ -17,10 +17,13 @@ export type PaginationOptions = {
     measureText?: (element: HTMLElement) => number
 }
 
+type PageHtmlSegment = { html: string; overflowMode?: ReaderPageOverflowMode }
+
 export const DEFAULT_PAGINATION_DIMENSIONS: PaginationDimensions = { width: 720, height: 640 }
 const DELEGATION_ATTRIBUTE_SELECTOR = '[data-ebook-reader-content-button], [data-ebook-reader-chat-index], [data-ebook-reader-button-ordinal]'
 const DELEGATION_ATTRIBUTES = ['data-ebook-reader-content-button', 'data-ebook-reader-chat-index', 'data-ebook-reader-button-ordinal']
 const READER_POPOVER_ATTRIBUTE = 'data-ebook-reader-popover'
+const RICH_WIDGET_SELECTOR = '.x-risu-dos-status, [data-ebook-reader-widget], [data-ebook-reader-rich-block], [data-ebook-reader-unbreakable]'
 const BLOCK_ELEMENTS = new Set([
     'p', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'blockquote', 'pre', 'hr',
     'details', 'figure', 'section', 'article', 'header', 'footer', 'nav', 'aside', 'title',
@@ -131,10 +134,10 @@ export function paginateCapturedMessages(messages: CapturedReaderMessage[], opti
             content.innerHTML = annotateContentButtons(message.html, message.chatIndex)
             wrapNakedTextNodes(content)
 
-            const pageHtmls = splitIntoPageHtml(content, measureContainer, textSplitter, measureElement)
-            for (const html of pageHtmls) {
-                if (html.trim() === '') continue
-                pages.push({ pageIndex: pages.length, chatIndex: message.chatIndex, headerInfo: message.headerInfo, html })
+            const pageSegments = splitIntoPageHtml(content, measureContainer, textSplitter, measureElement)
+            for (const segment of pageSegments) {
+                if (segment.html.trim() === '') continue
+                pages.push({ pageIndex: pages.length, chatIndex: message.chatIndex, headerInfo: message.headerInfo, html: segment.html, overflowMode: segment.overflowMode })
             }
         }
 
@@ -174,15 +177,17 @@ function splitIntoPageHtml(
     measureContainer: HTMLElement,
     textSplitter: ReturnType<typeof createTextSplitter>,
     measureElement: (element: HTMLElement) => number,
-): string[] {
-    const pages: string[] = []
+): PageHtmlSegment[] {
+    const pages: PageHtmlSegment[] = []
     let currentPageContent: HTMLElement[] = []
+    let currentPageOverflowMode: ReaderPageOverflowMode | undefined
     const availableHeight = getSafeAvailableHeight(measureContainer)
 
     const pushCurrentPage = () => {
         if (currentPageContent.length === 0) return
-        pages.push(createPageHtml(currentPageContent))
+        pages.push(createPageSegment(currentPageContent, currentPageOverflowMode))
         currentPageContent = []
+        currentPageOverflowMode = undefined
     }
 
     const addElementToPage = (element: HTMLElement) => {
@@ -190,6 +195,7 @@ function splitIntoPageHtml(
         if (currentPageContent.length > 0 && measureElements(candidate, measureContainer, measureElement) > availableHeight) {
             pushCurrentPage()
         }
+        if (isScrollableRichBlock(element)) currentPageOverflowMode = 'scrollable'
         currentPageContent.push(element.cloneNode(true) as HTMLElement)
     }
 
@@ -198,7 +204,7 @@ function splitIntoPageHtml(
 
         if (isSeparatePageBlock(element)) {
             pushCurrentPage()
-            pages.push(createPageHtml([element.cloneNode(true) as HTMLElement]))
+            pages.push(createPageSegment([element.cloneNode(true) as HTMLElement], isScrollableRichBlock(element) ? 'scrollable' : undefined))
             continue
         }
 
@@ -227,6 +233,11 @@ function isSeparatePageBlock(element: HTMLElement): boolean {
         || element.tagName === 'DETAILS'
         || element.querySelector('img') !== null
         || (element.tagName === 'DIV' && element.classList.contains('x-risu-image-container'))
+        || isScrollableRichBlock(element)
+}
+
+function isScrollableRichBlock(element: HTMLElement): boolean {
+    return element.matches(RICH_WIDGET_SELECTOR) || element.querySelector(RICH_WIDGET_SELECTOR) !== null
 }
 
 function measureElements(elements: HTMLElement[], measureContainer: HTMLElement, measureElement: (element: HTMLElement) => number): number {
@@ -290,4 +301,8 @@ function createPageHtml(elements: HTMLElement[]): string {
         wrapper.appendChild(element.cloneNode(true))
     }
     return wrapper.innerHTML
+}
+
+function createPageSegment(elements: HTMLElement[], overflowMode?: ReaderPageOverflowMode): PageHtmlSegment {
+    return { html: createPageHtml(elements), overflowMode }
 }

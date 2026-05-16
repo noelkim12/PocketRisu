@@ -19,6 +19,8 @@
     let showRightSpeaker = $derived(Boolean(rightPage && leftPage?.chatIndex !== rightPage.chatIndex))
     let leftPageContainsImage = $derived(Boolean(leftPage?.html.includes('<img')))
     let rightPageContainsImage = $derived(Boolean(rightPage?.html.includes('<img')))
+    let leftPageIsScrollable = $derived(leftPage?.overflowMode === 'scrollable')
+    let rightPageIsScrollable = $derived(rightPage?.overflowMode === 'scrollable')
 </script>
 
 <div class="relative grid min-h-0 flex-1 grid-cols-[1fr_auto_1fr] gap-0 bg-bg px-6 py-5">
@@ -31,7 +33,7 @@
                 {#if showLeftSpeaker}
                     <SpeakerStrip header={leftPage.headerInfo} />
                 {/if}
-                <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={leftPageContainsImage}>
+                <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={leftPageContainsImage} class:ebook-reader-page-body-scrollable={leftPageIsScrollable}>
                     {@html leftPage.html}
                 </div>
             {:else if status === 'error'}
@@ -51,7 +53,7 @@
                 {#if showRightSpeaker}
                     <SpeakerStrip header={rightPage.headerInfo} />
                 {/if}
-                <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={rightPageContainsImage}>
+                <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={rightPageContainsImage} class:ebook-reader-page-body-scrollable={rightPageIsScrollable}>
                     {@html rightPage.html}
                 </div>
             {:else if status === 'capturing' || status === 'paginating'}
@@ -66,10 +68,10 @@
 
 <style>
     .ebook-reader-page-turn-previous {
-        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M20 8L12 16l8 8' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 8L12 16l8 8' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 16, default;
+        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M20 8L12 16l8 8' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M20 8L12 16l8 8' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 16, pointer;
     }
 
     .ebook-reader-page-turn-next {
-        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M12 8l8 8-8 8' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 8l8 8-8 8' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 16, default;
+        cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M12 8l8 8-8 8' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 8l8 8-8 8' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 16, pointer;
     }
 </style>

@@ -5,5 +5,6 @@ export type ReaderHeaderInfo = { chatIndex: ChatIndex; role: ReaderSpeakerRole; 
 export type ReaderContentButtonDescriptor = { chatIndex: ChatIndex; ordinal: number; selector: string }
 export type CapturedReaderMessage = { chatIndex: ChatIndex; chatId?: string; html: string; headerInfo: ReaderHeaderInfo; contentHash: string; contentButtons?: ReaderContentButtonDescriptor[] }
 export type CaptureChunkResult = { requestedIndices: ChatIndex[]; capturedMessages: CapturedReaderMessage[]; missingIndices: ChatIndex[]; partial: boolean; startIndex: ChatIndex; endIndex: ChatIndex }
-export type ReaderPage = { pageIndex: number; chatIndex: ChatIndex; headerInfo: ReaderHeaderInfo; html: string }
+export type ReaderPageOverflowMode = 'scrollable'
+export type ReaderPage = { pageIndex: number; chatIndex: ChatIndex; headerInfo: ReaderHeaderInfo; html: string; overflowMode?: ReaderPageOverflowMode }
 export type ReaderAction = 'copy' | 'tts' | 'bookmark' | 'translate' | 'reroll' | 'unreroll' | 'remove' | 'jumpToOriginal' | 'editInOriginal'
