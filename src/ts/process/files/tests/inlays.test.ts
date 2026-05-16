@@ -88,6 +88,16 @@ vi.mock('uuid', () => ({
     v4: vi.fn(() => 'test-uuid-1234'),
 }))
 
+vi.mock('src/ts/media', () => ({
+    getImageType: vi.fn(() => 'PNG'),
+}))
+
+vi.mock('src/ts/model/modellist', () => ({
+    getModelInfo: vi.fn(() => ({ flags: [] })),
+    LLMFlags: { hasImageInput: 'hasImageInput' },
+    LLMFormat: {},
+}))
+
 const { getDatabaseMock } = vi.hoisted(() => ({
     getDatabaseMock: vi.fn(),
 }))

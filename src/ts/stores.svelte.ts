@@ -6,6 +6,7 @@ import { moduleUpdate } from "./process/modules";
 import { resetScriptCache } from "./process/scripts";
 import type { hubType } from "./characterCards";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
+import type { EbookReaderStatus } from "../lib/EbookReader/core/readerTypes";
 
 function updateSize(){
     SizeStore.set({
@@ -64,6 +65,12 @@ export const SystemSubmenuIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
 export const ScrollToMessageStore = $state({ value: -1 })
+export const ebookReaderStore = $state({
+    open: false,
+    currentChatIndex: -1,
+    currentPageIndex: 0,
+    status: 'idle' as EbookReaderStatus,
+})
 export const OpenRealmStore = writable(false)
 export const RealmInitialOpenChar = writable<null | hubType>(null)
 export const PlaygroundStore = writable(0)

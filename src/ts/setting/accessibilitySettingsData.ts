@@ -83,6 +83,87 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['menu', 'chat', 'list', 'show']
     },
     {
+        id: 'acc.enableEbookReader',
+        type: 'check',
+        labelKey: 'enableEbookReader',
+        bindKey: 'enableEbookReader',
+        helpKey: 'enableEbookReader',
+        keywords: ['ebook', 'reader', 'book', 'accessibility', 'overlay', 'chat']
+    },
+    {
+        id: 'acc.ebookReaderCustomization',
+        type: 'accordion',
+        labelKey: 'ebookReaderCustomization',
+        condition: (ctx) => ctx.db.enableEbookReader === true,
+        options: {
+            styled: true,
+            children: [
+                {
+                    id: 'acc.ebookReaderAppearance',
+                    type: 'select',
+                    labelKey: 'ebookReaderAppearance',
+                    bindPath: 'ebookReaderPrefs.appearance',
+                    options: {
+                        selectOptions: [
+                            { value: 'system', labelKey: 'ebookReaderAppearanceSystem' },
+                            { value: 'light', labelKey: 'ebookReaderAppearanceLight' },
+                            { value: 'dark', labelKey: 'ebookReaderAppearanceDark' },
+                            { value: 'sepia', labelKey: 'ebookReaderAppearanceSepia' },
+                        ],
+                    },
+                    keywords: ['ebook', 'reader', 'appearance', 'theme'],
+                },
+                {
+                    id: 'acc.ebookReaderFontSize',
+                    type: 'slider',
+                    labelKey: 'ebookReaderFontSize',
+                    bindPath: 'ebookReaderPrefs.fontSize',
+                    options: { min: 12, max: 28, step: 1, customText: (value) => `${value}px` },
+                    keywords: ['ebook', 'reader', 'font', 'size'],
+                },
+                {
+                    id: 'acc.ebookReaderLineHeight',
+                    type: 'slider',
+                    labelKey: 'ebookReaderLineHeight',
+                    bindPath: 'ebookReaderPrefs.lineHeight',
+                    options: { min: 1.2, max: 2.2, step: 0.05, fixed: 2 },
+                    keywords: ['ebook', 'reader', 'line', 'height'],
+                },
+                {
+                    id: 'acc.ebookReaderFontFamily',
+                    type: 'select',
+                    labelKey: 'ebookReaderFontFamily',
+                    bindPath: 'ebookReaderPrefs.fontFamily',
+                    options: {
+                        selectOptions: [
+                            { value: 'inherit', labelKey: 'ebookReaderFontFamilyInherit' },
+                            { value: 'serif', labelKey: 'ebookReaderFontFamilySerif' },
+                            { value: 'sans-serif', labelKey: 'ebookReaderFontFamilySansSerif' },
+                            { value: 'monospace', labelKey: 'ebookReaderFontFamilyMonospace' },
+                        ],
+                    },
+                    keywords: ['ebook', 'reader', 'font', 'family'],
+                },
+                {
+                    id: 'acc.ebookReaderPageWidth',
+                    type: 'slider',
+                    labelKey: 'ebookReaderPageWidth',
+                    bindPath: 'ebookReaderPrefs.pageWidth',
+                    options: { min: 560, max: 1200, step: 20, customText: (value) => `${value}px` },
+                    keywords: ['ebook', 'reader', 'page', 'width'],
+                },
+                {
+                    id: 'acc.ebookReaderBlurImages',
+                    type: 'check',
+                    labelKey: 'ebookReaderBlurImages',
+                    bindPath: 'ebookReaderPrefs.blurImages',
+                    keywords: ['ebook', 'reader', 'blur', 'images'],
+                },
+            ],
+        },
+        keywords: ['ebook', 'reader', 'customization', 'appearance', 'font', 'width'],
+    },
+    {
         id: 'acc.showMenuHypaMemoryModal',
         type: 'check',
         labelKey: 'showMenuHypaMemoryModal',

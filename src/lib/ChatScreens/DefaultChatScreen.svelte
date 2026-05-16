@@ -1,8 +1,8 @@
 <script lang="ts">
 
     import Suggestion from './Suggestion.svelte';
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon, ZapIcon } from "@lucide/svelte";
-    import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, easyPanelStore, chatDeselected } from "../../ts/stores.svelte";
+    import { BookOpenIcon, CameraIcon, ChevronUpIcon, ChevronDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon, ZapIcon } from "@lucide/svelte";
+    import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, easyPanelStore, chatDeselected, ebookReaderStore } from "../../ts/stores.svelte";
     import { tick } from 'svelte';
     import Chat from "./Chat.svelte";
     import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
@@ -59,6 +59,7 @@
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
+    let chatMenuLayerClass = $derived(ebookReaderStore.open ? 'z-[60]' : '')
 
     /** Await hydration of active chat. Returns full Chat or null on failure. */
     async function ensureActiveChatReady(selectedChar = $selectedCharID): Promise<ChatData | null> {
@@ -123,6 +124,15 @@
             }
         }
     }
+
+    function openEbookReader() {
+        ebookReaderStore.currentChatIndex = currentChat.length > 0 ? currentChat.length - 1 : -1
+        ebookReaderStore.currentPageIndex = 0
+        ebookReaderStore.status = 'idle'
+        ebookReaderStore.open = true
+        openMenu = false
+    }
+
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
             const index = ScrollToMessageStore.value
@@ -959,7 +969,7 @@
             {/if}
 
             {#if openMenu}
-                <div class="{DBState.db.fixedChatTextarea ? 'fixed' : 'absolute'} right-2 bottom-16 p-5 bg-darkbg flex flex-col gap-3 text-textcolor rounded-md" onclick={(e) => {
+                <div class="{DBState.db.fixedChatTextarea ? 'fixed' : 'absolute'} {chatMenuLayerClass} right-2 bottom-16 p-5 bg-darkbg flex flex-col gap-3 text-textcolor rounded-md" onclick={(e) => {
                     e.stopPropagation()
                 }}>
                     <!-- svelte-ignore block_empty -->
@@ -993,6 +1003,13 @@
                         }}>
                             <DatabaseIcon />
                             <span class="ml-2">{language.chatList}</span>
+                        </div>
+                    {/if}
+
+                    {#if DBState.db.enableEbookReader}
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={openEbookReader}>
+                            <BookOpenIcon />
+                            <span class="ml-2">{language.ebookReader}</span>
                         </div>
                     {/if}
 

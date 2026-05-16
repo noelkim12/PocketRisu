@@ -14,6 +14,7 @@ import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
 import { safeStructuredClone } from '../polyfill';
+import { defaultEbookReaderPrefs, normalizeEbookReaderPrefs, type EbookReaderPrefs } from '../../lib/EbookReader/core/preferences';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -375,6 +376,7 @@ export function setDatabase(data:Database){
         largePortrait: false
     }]
     data.classicMaxWidth ??= false
+    data.ebookReaderPrefs = normalizeEbookReaderPrefs(data.ebookReaderPrefs ?? defaultEbookReaderPrefs)
     data.ooba ??= safeStructuredClone(defaultOoba)
     data.ainconfig ??= safeStructuredClone(defaultAIN)
     data.openrouterKey ??= ''
@@ -673,6 +675,7 @@ export function setDatabase(data:Database){
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
+    data.enableEbookReader ??= false
     data.echoMessage ??= "Echo Message"
     data.echoDelay ??= 0
     data.createFolderOnBranch ??= true
@@ -1015,6 +1018,7 @@ export interface Database{
         useSync?:boolean
     },
     classicMaxWidth: boolean,
+    ebookReaderPrefs?: EbookReaderPrefs,
     useChatSticker:boolean,
     useAdditionalAssetsPreview:boolean,
     usePlainFetch:boolean
@@ -1330,6 +1334,7 @@ export interface Database{
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
     newMessageButtonStyle?: string
+    enableEbookReader?: boolean
     pluginDevelopMode?: boolean
     echoMessage?:string
     echoDelay?:number

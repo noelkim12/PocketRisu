@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarStore, openPresetList, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, easyPanelStore, loadoutModalStore, popUpEditorStore } from './ts/stores.svelte';
+    import { DynamicGUI, settingsOpen, sideBarStore, openPresetList, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, easyPanelStore, loadoutModalStore, popUpEditorStore, ebookReaderStore } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -35,6 +35,8 @@
     import EasyPanel from './lib/Others/ProTools/EasyPanel.svelte';
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
     import Toaster from './lib/UI/GUI/Toaster.svelte';
+    import EbookReaderOverlay from './lib/EbookReader/EbookReaderOverlay.svelte';
+    import Portal from './lib/UI/GUI/Portal.svelte';
     import sendSound from './etc/send.mp3'
 
     let gridOpen = $state(false)
@@ -246,6 +248,11 @@
     {/if}
     {#if popUpEditorStore.open}
         <PopupEditor />
+    {/if}
+    {#if ebookReaderStore.open}
+        <Portal>
+            <EbookReaderOverlay />
+        </Portal>
     {/if}
     <Toaster />
 </main>
