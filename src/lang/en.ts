@@ -869,6 +869,7 @@ export const languageEnglish = {
     ebookReaderFontFamilySansSerif: "Sans Serif",
     ebookReaderFontFamilyMonospace: "Monospace",
     ebookReaderPageWidth: "Page Width",
+    ebookReaderDesktopNavAreaWidth: "Desktop Navigation Area Width",
     ebookReaderBlurImages: "Blur Images",
     translatorLanguage: "Translator Language",
     translatorType: "Translator Type",

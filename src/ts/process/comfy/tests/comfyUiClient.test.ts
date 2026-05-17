@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildComfyUrl, downloadComfyFile, pollComfyHistory, queueComfyPrompt, uploadComfyImage } from './comfyUiClient'
+import { buildComfyUrl, downloadComfyFile, pollComfyHistory, queueComfyPrompt, uploadComfyImage } from '../comfyUiClient'
 
 const originalFetch = globalThis.fetch
 

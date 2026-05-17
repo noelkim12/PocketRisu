@@ -780,6 +780,7 @@ export const languageSpanish = {
     "ebookReaderFontFamilySansSerif": "Sans serif",
     "ebookReaderFontFamilyMonospace": "Monoespaciada",
     "ebookReaderPageWidth": "Ancho de página",
+    "ebookReaderDesktopNavAreaWidth": "Ancho del área de navegación de escritorio",
     "ebookReaderBlurImages": "Desenfocar imágenes",
     "translatorLanguage": "Idioma del Traductor",
     "translatorType": "Tipo de Traductor",

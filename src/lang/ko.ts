@@ -864,6 +864,7 @@ export const languageKorean = {
     "ebookReaderFontFamilySansSerif": "산세리프",
     "ebookReaderFontFamilyMonospace": "고정폭",
     "ebookReaderPageWidth": "페이지 너비",
+    "ebookReaderDesktopNavAreaWidth": "데스크톱 넘김 영역 너비",
     "ebookReaderBlurImages": "이미지 흐림",
     "translatorLanguage": "번역기 언어",
     "translatorType": "번역기 타입",

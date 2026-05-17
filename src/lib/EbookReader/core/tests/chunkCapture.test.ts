@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getChatElementByChatIndex, getChatMessageContainerByChatIndex, getTopVisibleChatIndex } from '../readerSelectors'
-import { captureChunk, extractContentHtml, getChunkIndices, getReaderIndices, hashContent } from '../chunkCapture'
+import { captureChunk, extractContentHtml, getChunkIndices, getReaderIndices, hashContent, waitForImagesLoaded } from '../chunkCapture'
 
 function setRect(element: Element, rect: Partial<DOMRect>) {
     element.getBoundingClientRect = () => ({
@@ -28,6 +28,7 @@ function row(index: number, html: string, chatId = `chat-${index}`, role = 'char
 
 describe('ebook reader chunk capture', () => {
     beforeEach(() => {
+        vi.useRealTimers()
         document.body.innerHTML = ''
     })
 
@@ -95,6 +96,62 @@ describe('ebook reader chunk capture', () => {
         expect(result.partial).toBe(false)
         expect(result.startIndex).toBe(-1)
         expect(result.endIndex).toBe(0)
+    })
+
+    it('waits for pending content images before capturing a chunk', async () => {
+        document.body.innerHTML = `<section class="default-chat-screen">${row(0, '<p>Image</p><img src="/asset.png" alt="asset">')}</section>`
+        const image = document.querySelector<HTMLImageElement>('.message-content img')!
+        Object.defineProperty(image, 'complete', { configurable: true, get: () => false })
+
+        const capturePromise = captureChunk(0, 1, { radius: 0, timeoutMs: 0, imageLoadTimeoutMs: 100 })
+        await Promise.resolve()
+
+        image.dispatchEvent(new Event('load'))
+        const result = await capturePromise
+
+        expect(result.capturedMessages).toHaveLength(1)
+        expect(result.capturedMessages[0].html).toContain('<img')
+    })
+
+    it('resolves pending image waits when the image loads', async () => {
+        const container = document.createElement('div')
+        container.innerHTML = '<img src="/ready.png" alt="ready">'
+        const image = container.querySelector<HTMLImageElement>('img')!
+        Object.defineProperty(image, 'complete', { configurable: true, get: () => false })
+
+        let resolved = false
+        const waitPromise = waitForImagesLoaded(container, 100).then(() => {
+            resolved = true
+        })
+
+        await Promise.resolve()
+        expect(resolved).toBe(false)
+
+        image.dispatchEvent(new Event('load'))
+        await waitPromise
+
+        expect(resolved).toBe(true)
+    })
+
+    it('stops waiting for images after the configured timeout', async () => {
+        vi.useFakeTimers()
+        const container = document.createElement('div')
+        container.innerHTML = '<img src="/slow.png" alt="slow">'
+        const image = container.querySelector<HTMLImageElement>('img')!
+        Object.defineProperty(image, 'complete', { configurable: true, get: () => false })
+
+        let resolved = false
+        const waitPromise = waitForImagesLoaded(container, 50).then(() => {
+            resolved = true
+        })
+
+        await Promise.resolve()
+        expect(resolved).toBe(false)
+
+        await vi.advanceTimersByTimeAsync(50)
+        await waitPromise
+
+        expect(resolved).toBe(true)
     })
 
     it('captures speaker role from chat DOM attributes', async () => {

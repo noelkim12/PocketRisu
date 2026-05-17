@@ -2,7 +2,7 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { makeHashedStorageKey, readPersistentJson, readPersistentJsons, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 
@@ -39,18 +39,133 @@ export const localModels = {
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
 const hypaVectorCachePrefix = 'cache/hypa-vector/';
+const missingHypaVectorCache = new Set<string>();
+const pendingHypaVectorReads = new Map<string, Promise<memoryVector | undefined>>();
 
 export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
     if (hypaVectorCache.has(cacheKey)) {
         return hypaVectorCache.get(cacheKey)
     }
+    if (missingHypaVectorCache.has(cacheKey)) {
+        return undefined
+    }
+    const pending = pendingHypaVectorReads.get(cacheKey)
+    if (pending) {
+        return pending
+    }
+    const readPromise = readPersistedHypaVector(cacheKey)
+    pendingHypaVectorReads.set(cacheKey, readPromise)
+    try {
+        return await readPromise
+    } finally {
+        pendingHypaVectorReads.delete(cacheKey)
+    }
+}
+
+async function readPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
     const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
     const payload = await readPersistentJson<{ key: string, value: memoryVector }>(storageKey)
     if (!payload || payload.key !== cacheKey) {
+        missingHypaVectorCache.add(cacheKey)
         return undefined
     }
     hypaVectorCache.set(cacheKey, payload.value)
     return payload.value
+}
+
+async function getPersistedHypaVectors(cacheKeys: string[]): Promise<Map<string, memoryVector>> {
+    const result = new Map<string, memoryVector>()
+    const keysToRead = [...new Set(cacheKeys)].filter((cacheKey) => {
+        const cached = hypaVectorCache.get(cacheKey)
+        if (cached) {
+            result.set(cacheKey, cached)
+            return false
+        }
+        return !missingHypaVectorCache.has(cacheKey)
+    })
+
+    if (keysToRead.length === 0) {
+        return result
+    }
+
+    const pendingKeys = keysToRead.filter((cacheKey) => pendingHypaVectorReads.has(cacheKey))
+    await Promise.all(pendingKeys.map(async (cacheKey) => {
+        const pending = pendingHypaVectorReads.get(cacheKey)
+        if (!pending) return
+        const value = await pending
+        if (value) {
+            result.set(cacheKey, value)
+        }
+    }))
+
+    const latePendingReads: Promise<void>[] = []
+    const freshKeys = keysToRead.filter((cacheKey) => {
+        if (result.has(cacheKey) || hypaVectorCache.has(cacheKey) || missingHypaVectorCache.has(cacheKey)) {
+            const cached = hypaVectorCache.get(cacheKey)
+            if (cached) {
+                result.set(cacheKey, cached)
+            }
+            return false
+        }
+        const pending = pendingHypaVectorReads.get(cacheKey)
+        if (pending) {
+            latePendingReads.push(pending.then((value) => {
+                if (value) {
+                    result.set(cacheKey, value)
+                }
+            }))
+            return false
+        }
+        return true
+    })
+
+    let batchPromise: Promise<Map<string, memoryVector>> | null = null
+    if (freshKeys.length > 0) {
+        batchPromise = readPersistedHypaVectorBatch(freshKeys)
+        for (const cacheKey of freshKeys) {
+            pendingHypaVectorReads.set(cacheKey, batchPromise.then((values) => values.get(cacheKey)))
+        }
+    }
+
+    await Promise.all(latePendingReads)
+
+    if (freshKeys.length === 0) {
+        return result
+    }
+
+    try {
+        const batchValues = await batchPromise
+        for (const [cacheKey, value] of batchValues) {
+            result.set(cacheKey, value)
+        }
+    } finally {
+        for (const cacheKey of freshKeys) {
+            pendingHypaVectorReads.delete(cacheKey)
+        }
+    }
+
+    return result
+}
+
+async function readPersistedHypaVectorBatch(cacheKeys: string[]): Promise<Map<string, memoryVector>> {
+    const result = new Map<string, memoryVector>()
+    const storageEntries = await Promise.all(cacheKeys.map(async (cacheKey) => ({
+        cacheKey,
+        storageKey: await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
+    })))
+    const payloads = await readPersistentJsons<{ key: string, value: memoryVector }>(storageEntries.map((entry) => entry.storageKey))
+
+    for (const entry of storageEntries) {
+        const payload = payloads.get(entry.storageKey)
+        if (!payload || payload.key !== entry.cacheKey) {
+            missingHypaVectorCache.add(entry.cacheKey)
+            continue
+        }
+        hypaVectorCache.set(entry.cacheKey, payload.value)
+        result.set(entry.cacheKey, payload.value)
+    }
+
+    return result
 }
 
 export async function setPersistedHypaVector(cacheKey: string, value: memoryVector) {
@@ -59,6 +174,7 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         embedding: Array.from(value.embedding)
     }
     hypaVectorCache.set(cacheKey, normalizedValue)
+    missingHypaVectorCache.delete(cacheKey)
     const storageKey = await makeHashedStorageKey(hypaVectorCachePrefix, cacheKey)
     await writePersistentJson(storageKey, {
         key: cacheKey,
@@ -186,8 +302,11 @@ export class HypaProcesser{
         const db = getDatabase()
         const suffix = (this.model === 'custom' && db.hypaCustomSettings?.model?.trim()) ? `-${db.hypaCustomSettings.model.trim()}` : ""
 
+        const cacheKeysByText = new Map(texts.map((text) => [text, text + '|' + this.model + suffix]))
+        const persistedVectors = await getPersistedHypaVectors([...cacheKeysByText.values()])
+
         for(let i=0;i<texts.length;i++){
-            const itm = await getPersistedHypaVector(texts[i] + '|' + this.model + suffix)
+            const itm = persistedVectors.get(cacheKeysByText.get(texts[i]))
             if(itm){
                 itm.alreadySaved = true
                 this.vectors.push(itm)

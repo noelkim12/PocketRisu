@@ -32,6 +32,8 @@
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
+    import { dispatchEbookReaderNavigation } from '../EbookReader/core/navigationEvents';
+    import { getDefaultChatScreen, getTopVisibleChatIndex } from '../EbookReader/core/readerSelectors';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
     
@@ -128,8 +130,9 @@
     async function openEbookReader() {
         const activeChat = await ensureActiveChatReady()
         const lastChatIndex = activeChat && activeChat.message.length > 0 ? activeChat.message.length - 1 : -1
+        const visibleChatIndex = getTopVisibleChatIndex(getDefaultChatScreen())
 
-        ebookReaderStore.currentChatIndex = lastChatIndex
+        ebookReaderStore.currentChatIndex = visibleChatIndex ?? lastChatIndex
         ebookReaderStore.currentPageIndex = 0
         ebookReaderStore.status = 'idle'
         ebookReaderStore.open = true
@@ -139,14 +142,23 @@
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
             const index = ScrollToMessageStore.value
+            const requestId = ScrollToMessageStore.requestId
             ScrollToMessageStore.value = -1
-            scrollToMessage(index)
+            void handleScrollToMessageRequest(index, requestId)
         }
     })
 
+    async function handleScrollToMessageRequest(index: number, requestId: number) {
+        await scrollToMessage(index)
+        if(requestId > ScrollToMessageStore.completedRequestId){
+            ScrollToMessageStore.completedRequestId = requestId
+        }
+    }
+
     async function scrollToMessage(index: number){
         // Forces the loading of past messages not rendered on the screen
-        isScrollingToMessage = true
+        const showScrollLoading = !ebookReaderStore.open
+        if(showScrollLoading) isScrollingToMessage = true
         try {
             const totalMessages = currentChat.length
             const neededLoadPages = totalMessages - index + 5
@@ -198,13 +210,15 @@
                 await sleep(50)
                 element.scrollIntoView({behavior: "instant", block: "start"})
 
-                element.classList.add('ring-2', 'ring-blue-500')
-                setTimeout(() => {
-                    element.classList.remove('ring-2', 'ring-blue-500')
-                }, 2000)
+                if(!ebookReaderStore.open){
+                    element.classList.add('ring-2', 'ring-blue-500')
+                    setTimeout(() => {
+                        element.classList.remove('ring-2', 'ring-blue-500')
+                    }, 2000)
+                }
             }
         } finally {
-            isScrollingToMessage = false
+            if(showScrollLoading) isScrollingToMessage = false
         }
     }
 
@@ -466,6 +480,16 @@
         }
     }
 
+    function handleEbookReaderTextareaNavigation(event: KeyboardEvent) {
+        if (!ebookReaderStore.open || !event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return false
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false
+
+        event.preventDefault()
+        event.stopPropagation()
+        dispatchEbookReaderNavigation(event.key === 'ArrowRight' ? 'next' : 'previous')
+        return true
+    }
+
     $effect.pre(() => {
         updateInputSizeAll()
     });
@@ -675,8 +699,8 @@
                 if (scrollNavTimer) clearTimeout(scrollNavTimer)
                 scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
             }
-            //@ts-expect-error scrollHeight/clientHeight/scrollTop don't exist on EventTarget, but target is HTMLElement here
-            const scrolled = (e.target.scrollHeight - e.target.clientHeight + e.target.scrollTop)
+            const scrollTarget = e.currentTarget
+            const scrolled = (scrollTarget.scrollHeight - scrollTarget.clientHeight + scrollTarget.scrollTop)
             if(scrolled < 100 && currentChat.length > loadPages){
                 loadPages += 15
             }
@@ -701,9 +725,10 @@
                 {/if}
 
                 <textarea class="peer text-input-area focus:border-textcolor transition-colors outline-hidden text-textcolor p-2 min-w-0 border border-r-0 bg-transparent rounded-md rounded-r-none input-text text-xl grow ml-4 border-darkborderc resize-none overflow-y-hidden overflow-x-hidden max-w-full placeholder:text-sm"
-                          bind:value={messageInput}
-                          bind:this={inputEle}
-                          onkeydown={(e) => {
+                           bind:value={messageInput}
+                           bind:this={inputEle}
+                           onkeydown={(e) => {
+                        if(handleEbookReaderTextareaNavigation(e)) return
                         if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
                             if(DBState.db.sendWithEnter && (!e.shiftKey)){
                                 send()

@@ -107,6 +107,18 @@ type EncodeBlockOption = {
 }
 
 const risuSaveCacheMap = new Map<string, {type: RisuSaveType, data: string, name: string}>();
+
+type RemoteBlockInfo = {
+    v: number
+    type: RisuSaveType
+    name: string
+}
+
+type BulkReadableStorage = {
+    getItems?: (keys: string[]) => Promise<{key: string, value: Uint8Array}[]>
+    getItem: (key: string) => Promise<Uint8Array | null>
+}
+
 export class RisuSaveEncoder {
 
     private blocks: { [key: string]: Uint8Array } = {};
@@ -421,6 +433,69 @@ export class RisuSaveDecoder {
         compression: boolean;
         content: string;
     }[] = []
+
+    private remoteBlockCache = new Map<string, Uint8Array | null>()
+
+    private parseRemoteBlockInfo(content: string): RemoteBlockInfo | null {
+        try {
+            const remoteInfo = JSON.parse(content) as RemoteBlockInfo
+            if (!remoteInfo || typeof remoteInfo.name !== 'string') {
+                return null
+            }
+            return remoteInfo
+        } catch {
+            return null
+        }
+    }
+
+    private remoteFileName(remoteName: string) {
+        return `remotes/${remoteName}.local.bin`
+    }
+
+    private async prefetchRemoteBlocks() {
+        const storage: BulkReadableStorage = forageStorage
+        const keysToFetch: string[] = []
+
+        for (const block of this.blocks) {
+            if (block.type !== RisuSaveType.REMOTE) continue
+            const remoteInfo = this.parseRemoteBlockInfo(block.content)
+            if (!remoteInfo) continue
+            const fileName = this.remoteFileName(remoteInfo.name)
+            if (!this.remoteBlockCache.has(fileName) && !keysToFetch.includes(fileName)) {
+                keysToFetch.push(fileName)
+            }
+        }
+
+        if (keysToFetch.length === 0) return
+
+        if (storage.getItems) {
+            try {
+                const found = new Set<string>()
+                const rows = await storage.getItems(keysToFetch)
+                for (const row of rows) {
+                    this.remoteBlockCache.set(row.key, row.value)
+                    found.add(row.key)
+                }
+                for (const key of keysToFetch) {
+                    if (!found.has(key)) {
+                        this.remoteBlockCache.set(key, null)
+                    }
+                }
+                return
+            } catch (error) {
+                console.warn('Bulk remote block prefetch failed, falling back to parallel reads:', error)
+            }
+        }
+
+        await Promise.allSettled(keysToFetch.map(async (key) => {
+            try {
+                this.remoteBlockCache.set(key, await storage.getItem(key))
+            } catch {
+                this.remoteBlockCache.set(key, null)
+            }
+        }))
+    }
+
     async decode(data: Uint8Array): Promise<Database> {
         console.log('Decoding RisuSave data');
         let offset = magicRisuSaveHeader.length;
@@ -470,6 +545,7 @@ export class RisuSaveDecoder {
             }
         }
         console.log('blocks',this.blocks)
+        await this.prefetchRemoteBlocks()
         let directory: string[] = []
         for(let i = 0; i < this.blocks.length; i++){
             const key = i;
@@ -508,6 +584,7 @@ export class RisuSaveDecoder {
                                     }
                                 }
                             }
+                            await this.prefetchRemoteBlocks()
                         }
                     }
                     break;
@@ -544,16 +621,13 @@ export class RisuSaveDecoder {
                     break;
                 }
                 case RisuSaveType.REMOTE:{
-                    const remoteInfo:{
-                        v:number
-                        type:RisuSaveType
-                        name:string
-                    } = JSON.parse(this.blocks[key].content);
-                    const fileName = `remotes/${remoteInfo.name}.local.bin`
-                    let remoteData:Uint8Array|null = null
-                    const stored = await forageStorage.getItem(fileName);
-                    if(stored){
-                        remoteData = stored as Uint8Array;
+                    const remoteInfo = this.parseRemoteBlockInfo(this.blocks[key].content)
+                    if (!remoteInfo) break
+                    const fileName = this.remoteFileName(remoteInfo.name)
+                    let remoteData = this.remoteBlockCache.get(fileName) ?? null
+                    if (!this.remoteBlockCache.has(fileName)) {
+                        remoteData = await forageStorage.getItem(fileName)
+                        this.remoteBlockCache.set(fileName, remoteData)
                     }
 
                     if(!remoteData){
@@ -723,13 +797,14 @@ export function calculateHash(node: any): number {
                     objectHash += (Math.imul(calculateHash(key), PRIME_MULTIPLIER) + calculateHash(node[key]));
                 return objectHash >>> 0;
             }
-        case 'string':
+        case 'string': {
             let strHash = 2166136261;
             for (let i = 0; i < node.length; i++)
                 strHash = Math.imul(strHash ^ node.charCodeAt(i), 16777619);
             return Math.imul(SEED_STRING, PRIME_MULTIPLIER) + (strHash >>> 0);
-        case 'number':
-            let numHash;
+        }
+        case 'number': {
+            let numHash: number;
             if (Number.isInteger(node) && node >= -2147483648 && node <= 2147483647)
                 numHash = node >>> 0;
             else {
@@ -740,6 +815,7 @@ export function calculateHash(node: any): number {
                 numHash = numHash >>> 0;
             }
             return Math.imul(SEED_NUMBER, PRIME_MULTIPLIER) + numHash;
+        }
         case 'boolean':
             return Math.imul(SEED_BOOLEAN, PRIME_MULTIPLIER) + (node ? 1 : 0);
 

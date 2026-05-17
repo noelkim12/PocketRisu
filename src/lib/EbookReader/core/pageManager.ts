@@ -23,6 +23,7 @@ export const DEFAULT_PAGINATION_DIMENSIONS: PaginationDimensions = { width: 720,
 const DELEGATION_ATTRIBUTE_SELECTOR = '[data-ebook-reader-content-button], [data-ebook-reader-chat-index], [data-ebook-reader-button-ordinal]'
 const DELEGATION_ATTRIBUTES = ['data-ebook-reader-content-button', 'data-ebook-reader-chat-index', 'data-ebook-reader-button-ordinal']
 const READER_POPOVER_ATTRIBUTE = 'data-ebook-reader-popover'
+const COMFY_VIDEO_CAPTURED_CONTROL_SELECTOR = '.x-risu-risu-comfy-video-action-button, .x-risu-risu-comfy-video-generating-status'
 const RICH_WIDGET_SELECTOR = '.x-risu-dos-status, [data-ebook-reader-widget], [data-ebook-reader-rich-block], [data-ebook-reader-unbreakable]'
 const BLOCK_ELEMENTS = new Set([
     'p', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'blockquote', 'pre', 'hr',
@@ -75,6 +76,8 @@ export function wrapNakedTextNodes(container: HTMLElement): void {
 export function annotateContentButtons(html: string, chatIndex: number): string {
     const container = document.createElement('div')
     container.innerHTML = html
+    normalizeReaderImages(container)
+    removeCapturedComfyVideoControls(container)
 
     for (const element of Array.from(container.querySelectorAll<HTMLElement>(DELEGATION_ATTRIBUTE_SELECTOR))) {
         for (const attribute of DELEGATION_ATTRIBUTES) element.removeAttribute(attribute)
@@ -89,6 +92,19 @@ export function annotateContentButtons(html: string, chatIndex: number): string 
     })
 
     return container.innerHTML
+}
+
+function normalizeReaderImages(container: HTMLElement) {
+    for (const image of Array.from(container.querySelectorAll<HTMLImageElement>('img'))) {
+        image.loading = 'eager'
+        image.decoding = 'async'
+    }
+}
+
+function removeCapturedComfyVideoControls(container: HTMLElement) {
+    for (const control of Array.from(container.querySelectorAll<HTMLElement>(COMFY_VIDEO_CAPTURED_CONTROL_SELECTOR))) {
+        control.remove()
+    }
 }
 
 function retargetPopoverControls(container: HTMLElement, chatIndex: number) {

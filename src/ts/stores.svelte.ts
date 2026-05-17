@@ -64,7 +64,11 @@ export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 export const SystemSubmenuIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
-export const ScrollToMessageStore = $state({ value: -1 })
+export const ScrollToMessageStore = $state({
+    value: -1,
+    requestId: 0,
+    completedRequestId: 0,
+})
 export const ebookReaderStore = $state({
     open: false,
     currentChatIndex: -1,

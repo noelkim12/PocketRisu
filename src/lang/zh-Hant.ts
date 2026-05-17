@@ -848,6 +848,7 @@ export const languageChineseTraditional = {
     "ebookReaderFontFamilySansSerif": "無襯線",
     "ebookReaderFontFamilyMonospace": "等寬",
     "ebookReaderPageWidth": "頁面寬度",
+    "ebookReaderDesktopNavAreaWidth": "桌面翻頁區域寬度",
     "ebookReaderBlurImages": "模糊圖片",
     "translatorLanguage": "翻譯目標語言",
     "translatorType": "翻譯器類型",

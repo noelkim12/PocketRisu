@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { collectComfyOutputs, patchLoadImageNode, replaceWorkflowText, randomizeWorkflowSeeds } from './comfyWorkflow'
+import { collectComfyOutputs, patchLoadImageNode, replaceWorkflowText, randomizeWorkflowSeeds } from '../comfyWorkflow'
 
 afterEach(() => {
     vi.restoreAllMocks()

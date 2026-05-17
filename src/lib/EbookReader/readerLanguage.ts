@@ -28,6 +28,7 @@ export type EbookReaderLanguageKey =
     | 'ebookReaderFontFamilySansSerif'
     | 'ebookReaderFontFamilyMonospace'
     | 'ebookReaderPageWidth'
+    | 'ebookReaderDesktopNavAreaWidth'
     | 'ebookReaderBlurImages'
 
 type EbookReaderLanguage = typeof language & Record<EbookReaderLanguageKey, string>

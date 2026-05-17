@@ -950,7 +950,7 @@ async function processInlayQueue() {
 
 export function resolveInlayPlaceholders(root: HTMLElement) {
     if (!root) return
-    const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]:not([data-inlay-resolving])')) as HTMLElement[]
+    const placeholders = Array.from(root.querySelectorAll('[data-inlay-id][data-inlay-type]:not([data-inlay-resolving])')) as HTMLElement[]
     if (placeholders.length === 0) return
 
     const observer = new IntersectionObserver((entries) => {

@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { tick } from 'svelte'
+    import { resolveInlayPlaceholders } from '../../../ts/parser/parser.svelte'
     import SpeakerStrip from '../SpeakerStrip.svelte'
     import type { EbookReaderStatus, ReaderPage } from '../core/readerTypes'
     import { readerLabel } from '../readerLanguage'
@@ -14,6 +16,18 @@
     let showSpeaker = $derived(Boolean(page && previousPage?.chatIndex !== page.chatIndex))
     let pageContainsImage = $derived(Boolean(page?.html.includes('<img')))
     let pageIsScrollable = $derived(page?.overflowMode === 'scrollable')
+    let pageBodyElement: HTMLElement | null = $state(null)
+
+    async function resolveVisibleInlays() {
+        await tick()
+        if (pageBodyElement) resolveInlayPlaceholders(pageBodyElement)
+    }
+
+    $effect(() => {
+        page?.html
+        pageBodyElement
+        void resolveVisibleInlays()
+    })
 </script>
 
 <article class="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg p-3">
@@ -22,7 +36,7 @@
             {#if showSpeaker}
                 <SpeakerStrip header={page.headerInfo} />
             {/if}
-            <div class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={pageContainsImage} class:ebook-reader-page-body-scrollable={pageIsScrollable}>
+            <div bind:this={pageBodyElement} class="ebook-reader-page-body min-h-0 flex-1 overflow-hidden" class:ebook-reader-page-body-image={pageContainsImage} class:ebook-reader-page-body-scrollable={pageIsScrollable}>
                 {@html page.html}
             </div>
         {:else if status === 'error'}

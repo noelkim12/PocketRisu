@@ -487,32 +487,34 @@ body {
 }
 
 .x-risu-risu-inlay-image img {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg focus:outline-hidden w-full;
 }
 
 .x-risu-risu-comfy-video-image-wrap {
   position: relative;
-  display: inline-block;
-  max-width: 20rem;
+  width: 100%;
 }
 
 .x-risu-risu-comfy-video-image-wrap > img {
   display: block;
-  max-width: 100%;
   border-radius: 0.5rem;
 }
 
 .x-risu-risu-comfy-video-action-bar {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 50%;
+  right: auto;
   bottom: 0;
+  width: 100%;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   padding: 2rem 0.5rem 0.5rem;
   opacity: 0;
   pointer-events: none;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.80), rgba(0, 0, 0, 0.35), transparent);
+  transform: translateX(-50%);
   transition-property: opacity;
   transition-duration: 150ms;
   transition-delay: var(--risu-comfy-video-delay, 3000ms);
@@ -520,7 +522,8 @@ body {
 
 .x-risu-risu-comfy-video-image-wrap:hover .x-risu-risu-comfy-video-action-bar,
 .x-risu-risu-comfy-video-image-wrap:focus-within .x-risu-risu-comfy-video-action-bar,
-.x-risu-risu-comfy-video-image-wrap.x-risu-risu-comfy-video-touch-active .x-risu-risu-comfy-video-action-bar {
+.x-risu-risu-comfy-video-image-wrap.x-risu-risu-comfy-video-touch-active .x-risu-risu-comfy-video-action-bar,
+.x-risu-risu-comfy-video-image-wrap.x-risu-risu-comfy-video-generating .x-risu-risu-comfy-video-action-bar {
   opacity: 1;
   pointer-events: auto;
   transition-delay: 0ms;
@@ -537,6 +540,32 @@ body {
 
 .x-risu-risu-comfy-video-action-button:hover {
   background: rgba(255, 255, 255, 0.30);
+}
+
+.x-risu-risu-comfy-video-generating-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  color: white;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.x-risu-risu-comfy-video-generating-status[hidden] {
+  display: none;
+}
+
+.x-risu-risu-comfy-video-generating-status::before {
+  content: '';
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  border-radius: 9999px;
+  animation: risu-spin 0.8s linear infinite;
 }
 
 .x-risu-risu-inlay-image video {

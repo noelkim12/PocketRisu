@@ -115,6 +115,28 @@ describe('ebook reader content delegation capture', () => {
         expect(images.map((image) => image.getAttribute('src'))).toEqual(['/api/asset/example', '/api/asset/full'])
     })
 
+    it('removes captured Comfy video hover controls so nested image opener buttons are not split by HTML parsing', () => {
+        const html = annotateContentButtons(`
+            <button popovertarget="lb-xnai-pop-59-3" type="button">
+                <div class="x-risu-risu-comfy-video-image-wrap x-risu-risu-inlay-image">
+                    <img data-inlay-id="source-id" src="/api/asset/source-id">
+                    <div class="x-risu-risu-comfy-video-action-bar">
+                        <button type="button" class="x-risu-risu-comfy-video-action-button">Generate video</button>
+                        <div class="x-risu-risu-comfy-video-generating-status" hidden>Generating video...</div>
+                    </div>
+                </div>
+            </button>
+        `, 59)
+        const container = document.createElement('div')
+        container.innerHTML = html
+
+        expect(container.querySelector('.x-risu-risu-comfy-video-image-wrap img')).not.toBeNull()
+        expect(container.querySelector('.x-risu-risu-comfy-video-action-bar')).not.toBeNull()
+        expect(container.querySelector('.x-risu-risu-comfy-video-action-button')).toBeNull()
+        expect(container.querySelector('.x-risu-risu-comfy-video-generating-status')).toBeNull()
+        expect(container.querySelectorAll('[data-ebook-reader-content-button="true"]')).toHaveLength(1)
+    })
+
     it('does not dispatch forged delegation attributes on non-content-button elements', () => {
         document.body.innerHTML = `
             <section class="default-chat-screen">

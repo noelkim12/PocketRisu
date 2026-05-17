@@ -515,8 +515,39 @@ export function setDatabase(data:Database){
         posInputName: 'text',
         negNodeID: '',
         negInputName: 'text',
-        timeout: 30
+        timeout: 30,
+        video: {
+            enabled: false,
+            workflow: '',
+            inputImageNodeId: '32',
+            inputImageField: 'image',
+            outputNodeId: '30',
+            positivePrompt: '',
+            negativePrompt: '',
+            timeout: 300,
+            hoverButtonDurationMs: 3000,
+        }
     }
+    data.comfyConfig.video ??= {
+        enabled: false,
+        workflow: '',
+        inputImageNodeId: '32',
+        inputImageField: 'image',
+        outputNodeId: '30',
+        positivePrompt: '',
+        negativePrompt: '',
+        timeout: 300,
+        hoverButtonDurationMs: 3000,
+    }
+    data.comfyConfig.video.enabled ??= false
+    data.comfyConfig.video.workflow ??= ''
+    data.comfyConfig.video.inputImageNodeId ??= '32'
+    data.comfyConfig.video.inputImageField ??= 'image'
+    data.comfyConfig.video.outputNodeId ??= '30'
+    data.comfyConfig.video.positivePrompt ??= ''
+    data.comfyConfig.video.negativePrompt ??= ''
+    data.comfyConfig.video.timeout ??= 300
+    data.comfyConfig.video.hoverButtonDurationMs ??= 3000
     data.hideApiKey ??= true
     data.unformatQuotes ??= false
     data.ttsAutoSpeech ??= false
@@ -1864,13 +1895,26 @@ interface NAIVibeEncoding {
     };
 }
 
+export interface ComfyVideoConfig {
+    enabled: boolean
+    workflow: string
+    inputImageNodeId: string
+    inputImageField: string
+    outputNodeId: string
+    positivePrompt: string
+    negativePrompt: string
+    timeout: number
+    hoverButtonDurationMs: number
+}
+
 interface ComfyConfig{
     workflow:string,
     posNodeID: string,
     posInputName:string,
     negNodeID: string,
     negInputName:string,
-    timeout: number
+    timeout: number,
+    video: ComfyVideoConfig
 }
 
 export type FormatingOrderItem = 'main'|'jailbreak'|'chats'|'lorebook'|'globalNote'|'authorNote'|'lastChat'|'description'|'postEverything'|'personaPrompt'

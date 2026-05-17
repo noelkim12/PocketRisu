@@ -51,7 +51,7 @@ describe('ebook reader page manager', () => {
 
     it('treats image and details blocks as separate pages when mixed with text', () => {
         const pages = paginateCapturedMessages([
-            message(3, '<p>intro</p><figure><img src="/a.png" alt="a"></figure><details><summary>More</summary><p>hidden</p></details><p>outro</p>'),
+            message(3, '<p>intro</p><figure><img src="/a.png" alt="a" loading="lazy"></figure><details><summary>More</summary><p>hidden</p></details><p>outro</p>'),
         ], {
             dimensions: { width: 320, height: 200 },
             mode: 'mobile',
@@ -61,6 +61,7 @@ describe('ebook reader page manager', () => {
         expect(pages).toHaveLength(4)
         expect(pages.every((page) => page.chatIndex === 3)).toBe(true)
         expect(pages[1].html).toContain('<img')
+        expect(pages[1].html).toContain('loading="eager"')
         expect(pages[2].html).toContain('<details')
     })
 

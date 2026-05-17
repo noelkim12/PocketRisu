@@ -6,11 +6,13 @@ type CaptureOptions = {
     root?: ParentNode | null
     timeoutMs?: number
     intervalMs?: number
+    imageLoadTimeoutMs?: number
 }
 
 const DEFAULT_CHUNK_RADIUS = 5
 const DEFAULT_WAIT_TIMEOUT_MS = 500
 const DEFAULT_WAIT_INTERVAL_MS = 25
+const DEFAULT_IMAGE_LOAD_TIMEOUT_MS = 1500
 
 export const CONTENT_BUTTON_SELECTOR = [
     '[risu-trigger]',
@@ -29,6 +31,35 @@ function delay(ms: number) {
 
 function normalizeMessageCount(messageCount: number) {
     return Math.max(0, Math.floor(messageCount))
+}
+
+function getImageLoadTarget(row: HTMLElement): HTMLElement {
+    return findBestContentElement(row) ?? row
+}
+
+export async function waitForImagesLoaded(element: HTMLElement, timeoutMs = DEFAULT_IMAGE_LOAD_TIMEOUT_MS): Promise<void> {
+    const pendingImages = Array.from(element.querySelectorAll<HTMLImageElement>('img'))
+        .filter((image) => image.src !== '' && !image.complete)
+
+    if (pendingImages.length === 0) return
+
+    const cleanupHandlers: Array<() => void> = []
+    const imageLoadPromise = Promise.all(pendingImages.map((image) => new Promise<void>((resolve) => {
+        const complete = () => resolve()
+        image.addEventListener('load', complete, { once: true })
+        image.addEventListener('error', complete, { once: true })
+        cleanupHandlers.push(() => {
+            image.removeEventListener('load', complete)
+            image.removeEventListener('error', complete)
+        })
+    })))
+
+    await Promise.race([
+        imageLoadPromise,
+        delay(Math.max(0, timeoutMs)),
+    ])
+
+    for (const cleanup of cleanupHandlers) cleanup()
 }
 
 function parseChatIndex(row: HTMLElement): ChatIndex {
@@ -188,6 +219,7 @@ export async function captureChunk(
 ): Promise<CaptureChunkResult> {
     const requestedIndices = getChunkIndices(center, messageCount, options.radius ?? DEFAULT_CHUNK_RADIUS)
     await ensureRepresentativeRow(requestedIndices, options)
+    const imageLoadTimeoutMs = options.imageLoadTimeoutMs ?? DEFAULT_IMAGE_LOAD_TIMEOUT_MS
 
     const capturedMessages: CapturedReaderMessage[] = []
     const missingIndices: ChatIndex[] = []
@@ -195,6 +227,7 @@ export async function captureChunk(
     for (const index of requestedIndices) {
         const row = await waitForChatElement(index, options)
         if (row) {
+            await waitForImagesLoaded(getImageLoadTarget(row), imageLoadTimeoutMs)
             capturedMessages.push(captureRow(row))
         } else {
             missingIndices.push(index)

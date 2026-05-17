@@ -8,6 +8,7 @@ export interface EbookReaderPrefs {
     paragraphSpacing: number
     fontFamily: EbookReaderFontFamily
     pageWidth: number
+    desktopNavAreaWidth: number
     blurImages: boolean
 }
 
@@ -18,6 +19,7 @@ export const defaultEbookReaderPrefs: EbookReaderPrefs = {
     paragraphSpacing: 0.65,
     fontFamily: 'inherit',
     pageWidth: 75,
+    desktopNavAreaWidth: 20,
     blurImages: false,
 }
 
@@ -30,6 +32,9 @@ const PARAGRAPH_SPACING_MAX = 1.5
 export const PAGE_WIDTH_PERCENT_MIN = 50
 export const PAGE_WIDTH_PERCENT_MAX = 100
 export const PAGE_WIDTH_PERCENT_STEP = 5
+export const DESKTOP_NAV_AREA_WIDTH_PERCENT_MIN = 5
+export const DESKTOP_NAV_AREA_WIDTH_PERCENT_MAX = 40
+export const DESKTOP_NAV_AREA_WIDTH_PERCENT_STEP = 1
 const LEGACY_PAGE_WIDTH_MAX = 1200
 const VALID_APPEARANCES = new Set<EbookReaderAppearance>(['system', 'light', 'dark', 'sepia'])
 const VALID_FONT_FAMILIES = new Set<EbookReaderFontFamily>(['inherit', 'serif', 'sans-serif', 'monospace'])
@@ -70,6 +75,7 @@ export function normalizeEbookReaderPrefs(value: Partial<EbookReaderPrefs> | unk
             ? prefs.fontFamily as EbookReaderFontFamily
             : defaultEbookReaderPrefs.fontFamily,
         pageWidth: normalizePageWidthPercent(prefs.pageWidth),
+        desktopNavAreaWidth: clamp(Number(prefs.desktopNavAreaWidth), DESKTOP_NAV_AREA_WIDTH_PERCENT_MIN, DESKTOP_NAV_AREA_WIDTH_PERCENT_MAX, defaultEbookReaderPrefs.desktopNavAreaWidth),
         blurImages: typeof prefs.blurImages === 'boolean' ? prefs.blurImages : defaultEbookReaderPrefs.blurImages,
     }
 }
@@ -83,6 +89,7 @@ export function prefsToCssVars(prefs: EbookReaderPrefs): Record<string, string> 
         '--ebook-reader-paragraph-spacing': `${normalized.paragraphSpacing}em`,
         '--ebook-reader-font-family': normalized.fontFamily,
         '--ebook-reader-page-width': `${normalized.pageWidth}%`,
+        '--ebook-reader-desktop-nav-area-width': `${normalized.desktopNavAreaWidth}%`,
         '--ebook-reader-image-filter': normalized.blurImages ? 'blur(8px)' : 'none',
     }
 }

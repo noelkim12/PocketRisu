@@ -16,10 +16,38 @@ export function wrapImageWithComfyVideoAction(img: HTMLImageElement, args: Comfy
     button.type = 'button'
     button.className = 'x-risu-risu-comfy-video-action-button'
     button.textContent = 'Generate video'
-    button.addEventListener('click', (event) => {
+
+    const status = document.createElement('div')
+    status.className = 'x-risu-risu-comfy-video-generating-status'
+    status.textContent = 'Generating video...'
+    status.hidden = true
+
+    let isGenerating = false
+    const setGenerating = (generating: boolean) => {
+        isGenerating = generating
+        wrapper.classList.toggle('x-risu-risu-comfy-video-generating', generating)
+        button.disabled = generating
+        button.hidden = generating
+        status.hidden = !generating
+    }
+
+    button.addEventListener('click', async (event) => {
         event.preventDefault()
         event.stopPropagation()
-        void args.onGenerate({ img, inlayId: args.inlayId })
+        if (isGenerating) {
+            return
+        }
+
+        setGenerating(true)
+        try {
+            await args.onGenerate({ img, inlayId: args.inlayId })
+        } catch (error) {
+            console.error('[comfyVideoActions] Video generation failed', error)
+        } finally {
+            if (wrapper.isConnected) {
+                setGenerating(false)
+            }
+        }
     })
 
     let touchTimer: ReturnType<typeof setTimeout> | undefined
@@ -34,6 +62,7 @@ export function wrapImageWithComfyVideoAction(img: HTMLImageElement, args: Comfy
     })
 
     buttonBar.appendChild(button)
+    buttonBar.appendChild(status)
     wrapper.appendChild(img)
     wrapper.appendChild(buttonBar)
 

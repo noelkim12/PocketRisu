@@ -1,9 +1,18 @@
-import type { CaptureChunkResult } from './readerTypes'
+import type { CaptureChunkResult, ChatIndex } from './readerTypes'
 
 export type PageMode = 'spread' | 'single'
 
 type SpreadOptions = {
     mode?: PageMode
+}
+
+export type ReaderPageAnchor = {
+    chatIndex: ChatIndex
+    pageOffset: number
+}
+
+type ChatIndexedPage = {
+    chatIndex: ChatIndex
 }
 
 function normalizeInteger(value: number) {
@@ -20,6 +29,27 @@ export function getSpreadPageIndex(pageIndex: number, pageCount: number, options
     const clamped = clampPageIndex(pageIndex, pageCount)
     if (options.mode === 'single') return clamped
     return clamped % 2 === 0 ? clamped : clamped - 1
+}
+
+export function getReaderPageAnchor<T extends ChatIndexedPage>(pages: T[], pageIndex: number): ReaderPageAnchor | null {
+    const page = pages[clampPageIndex(pageIndex, pages.length)]
+    if (!page) return null
+
+    const pageOffset = pages
+        .slice(0, clampPageIndex(pageIndex, pages.length) + 1)
+        .filter((candidate) => candidate.chatIndex === page.chatIndex)
+        .length - 1
+
+    return { chatIndex: page.chatIndex, pageOffset: Math.max(0, pageOffset) }
+}
+
+export function resolveReaderPageAnchor<T extends ChatIndexedPage>(pages: T[], anchor: ReaderPageAnchor, fallbackPageIndex = 0): number {
+    const matchingIndexes = pages
+        .map((page, index) => page.chatIndex === anchor.chatIndex ? index : -1)
+        .filter((index) => index >= 0)
+
+    if (matchingIndexes.length === 0) return clampPageIndex(fallbackPageIndex, pages.length)
+    return matchingIndexes[Math.min(Math.max(0, normalizeInteger(anchor.pageOffset)), matchingIndexes.length - 1)]
 }
 
 export function getNextChunkCenter(currentChunk: Pick<CaptureChunkResult, 'endIndex'>, messageCount?: number): number {

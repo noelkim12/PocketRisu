@@ -2,8 +2,9 @@
     import { onDestroy, onMount, tick } from 'svelte'
     import DesktopBookViewer from './desktop/DesktopBookViewer.svelte'
     import MobileBookViewer from './mobile/MobileBookViewer.svelte'
-    import { captureChunk } from './core/chunkCapture'
-    import { clampPageIndex, getNextChunkCenter, getPrevChunkCenter, getSpreadPageIndex } from './core/navigation'
+    import { captureChunk, waitForChatElement } from './core/chunkCapture'
+    import { clampPageIndex, getNextChunkCenter, getPrevChunkCenter, getReaderPageAnchor, getSpreadPageIndex, resolveReaderPageAnchor, type ReaderPageAnchor } from './core/navigation'
+    import { EBOOK_READER_NAVIGATION_EVENT, type EbookReaderNavigationEventDetail } from './core/navigationEvents'
     import { observeEbookReaderChanges, observeEbookReaderGeometry } from './core/observer'
     import { DEFAULT_PAGINATION_DIMENSIONS, paginateCapturedMessages } from './core/pageManager'
     import { dispatchContentButtonAction, proxyReaderAction } from './core/domActionProxy'
@@ -13,7 +14,7 @@
     import { normalizeEbookReaderPrefs, prefsToCssVars } from './core/preferences'
     import { getChatMessageContainerByChatIndex, getDefaultChatScreen } from './core/readerSelectors'
     import type { CaptureChunkResult, ReaderAction, ReaderHeaderInfo, ReaderPage } from './core/readerTypes'
-    import { DBState, DynamicGUI, ebookReaderStore, selectedCharID } from 'src/ts/stores.svelte'
+    import { DBState, DynamicGUI, ebookReaderStore, ScrollToMessageStore, selectedCharID } from 'src/ts/stores.svelte'
     import { readerLabel } from './readerLanguage'
 
     let pages: ReaderPage[] = $state([])
@@ -34,6 +35,11 @@
     let anchorRect: EbookReaderPanelRect | null = $state(null)
     let geometryChatIndex = ebookReaderStore.currentChatIndex
     let geometryAnchorElement: HTMLElement | null = null
+    let lastSyncedOriginalChatIndex: number | null = null
+    let suppressOriginalSyncRefreshUntil = 0
+
+    const ORIGINAL_CHAT_SYNC_TIMEOUT_MS = 11000
+    const ORIGINAL_SYNC_REFRESH_SUPPRESSION_MS = 1200
 
     let messageCount = $derived.by(() => {
         const character = DBState.db.characters?.[$selectedCharID]
@@ -46,7 +52,13 @@
     let readerPrefs = $derived(normalizeEbookReaderPrefs(DBState.db.ebookReaderPrefs))
     let readerStyle = $derived(prefsToCssVars(readerPrefs))
     let readerStyleText = $derived(Object.entries(readerStyle).map(([name, value]) => `${name}: ${value}`).join('; '))
-    let readerPreferenceSignature = $derived(JSON.stringify(readerPrefs))
+    let paginationPreferenceSignature = $derived(JSON.stringify({
+        fontSize: readerPrefs.fontSize,
+        lineHeight: readerPrefs.lineHeight,
+        paragraphSpacing: readerPrefs.paragraphSpacing,
+        fontFamily: readerPrefs.fontFamily,
+        pageWidth: readerPrefs.pageWidth,
+    }))
     let normalizedPageIndex = $derived(isMobile
         ? clampPageIndex(ebookReaderStore.currentPageIndex, pages.length)
         : getSpreadPageIndex(ebookReaderStore.currentPageIndex, pages.length))
@@ -179,9 +191,51 @@
         if (!page) return
         ebookReaderStore.currentChatIndex = page.chatIndex
         headerInfo = page.headerInfo
+        if (geometryChatIndex !== page.chatIndex) {
+            geometryChatIndex = page.chatIndex
+            geometryAnchorElement = null
+        }
+        syncOriginalChatScroll(page.chatIndex)
     }
 
-    type ChunkTargetPage = 'first' | 'last' | 'centerFirst' | number
+    function delay(ms: number) {
+        return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    type OriginalChatScrollOptions = {
+        force?: boolean
+    }
+
+    function syncOriginalChatScroll(chatIndex: number, options: OriginalChatScrollOptions = {}): number | null {
+        if (chatIndex < 0 || (!options.force && lastSyncedOriginalChatIndex === chatIndex)) return null
+        lastSyncedOriginalChatIndex = chatIndex
+        ScrollToMessageStore.requestId += 1
+        ScrollToMessageStore.value = chatIndex
+        return ScrollToMessageStore.requestId
+    }
+
+    async function waitForOriginalChatScrollCompletion(requestId: number, timeoutMs = ORIGINAL_CHAT_SYNC_TIMEOUT_MS) {
+        const deadline = Date.now() + Math.max(0, timeoutMs)
+
+        while (ScrollToMessageStore.completedRequestId < requestId && Date.now() < deadline) {
+            await delay(Math.min(50, Math.max(0, deadline - Date.now())))
+        }
+    }
+
+    async function syncOriginalChatBeforeCapture(chatIndex: number) {
+        if (chatIndex < 0) return
+
+        const requestId = syncOriginalChatScroll(chatIndex, { force: true })
+        if (requestId !== null) await waitForOriginalChatScrollCompletion(requestId)
+        await waitForChatElement(chatIndex, { timeoutMs: ORIGINAL_CHAT_SYNC_TIMEOUT_MS })
+        suppressOriginalSyncRefreshUntil = Date.now() + ORIGINAL_SYNC_REFRESH_SUPPRESSION_MS
+    }
+
+    type ChunkTargetPage = 'first' | 'last' | 'centerFirst' | number | ReaderPageAnchor
+
+    type LoadChunkOptions = {
+        syncOriginalBeforeCapture?: boolean
+    }
 
     function resolveTargetPageIndex(targetPage: ChunkTargetPage, pagesToSearch: ReaderPage[], center: number) {
         if (targetPage === 'last') return pagesToSearch.length - 1
@@ -191,15 +245,22 @@
             return centerPageIndex >= 0 ? centerPageIndex : 0
         }
 
+        if (typeof targetPage === 'object') return resolveReaderPageAnchor(pagesToSearch, targetPage, ebookReaderStore.currentPageIndex)
+
         return targetPage
     }
 
-    async function loadChunk(center: number, targetPage: ChunkTargetPage = 0) {
+    async function loadChunk(center: number, targetPage: ChunkTargetPage = 0, options: LoadChunkOptions = {}) {
         const generation = loadGeneration + 1
         loadGeneration = generation
         ebookReaderStore.status = 'capturing'
 
         try {
+            if (options.syncOriginalBeforeCapture ?? true) {
+                await syncOriginalChatBeforeCapture(center)
+                if (generation !== loadGeneration) return
+            }
+
             const captured = await captureChunk(center, messageCount)
             if (generation !== loadGeneration) return
             if (captured.capturedMessages.length === 0) {
@@ -250,10 +311,11 @@
     }
 
     async function refreshCurrentChunk() {
+        const pageAnchor = getReaderPageAnchor(pages, ebookReaderStore.currentPageIndex)
         const center = currentChunk
             ? Math.min(Math.max(ebookReaderStore.currentChatIndex, currentChunk.startIndex), currentChunk.endIndex)
             : ebookReaderStore.currentChatIndex
-        await loadChunk(center, ebookReaderStore.currentPageIndex)
+        await loadChunk(center, pageAnchor ?? ebookReaderStore.currentPageIndex, { syncOriginalBeforeCapture: false })
     }
 
     function notifyUpdated() {
@@ -313,6 +375,15 @@
             nextPage()
         } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
             event.preventDefault()
+            previousPage()
+        }
+    }
+
+    function handleExternalNavigation(event: Event) {
+        const direction = (event as CustomEvent<EbookReaderNavigationEventDetail>).detail?.direction
+        if (direction === 'next') {
+            nextPage()
+        } else if (direction === 'previous') {
             previousPage()
         }
     }
@@ -421,12 +492,12 @@
         }
         if (currentChunk && observedMode !== pageMode) {
             observedMode = pageMode
-            void loadChunk(ebookReaderStore.currentChatIndex, normalizedPageIndex)
+            void loadChunk(ebookReaderStore.currentChatIndex, normalizedPageIndex, { syncOriginalBeforeCapture: false })
         }
     })
 
     $effect(() => {
-        const signature = readerPreferenceSignature
+        const signature = paginationPreferenceSignature
         if (lastReaderPreferenceSignature === null) {
             lastReaderPreferenceSignature = signature
             return
@@ -463,11 +534,18 @@
 
     onMount(() => {
         window.addEventListener('keydown', handleKeydown)
+        window.addEventListener(EBOOK_READER_NAVIGATION_EVENT, handleExternalNavigation)
         window.addEventListener('resize', scheduleAnchorMeasure)
         window.addEventListener('scroll', scheduleAnchorMeasure, true)
         window.visualViewport?.addEventListener('resize', scheduleAnchorMeasure)
         window.visualViewport?.addEventListener('scroll', scheduleAnchorMeasure)
-        cleanupObserver = observeEbookReaderChanges({ onRefresh: () => void refreshCurrentChunk(), onNotify: notifyUpdated })
+        cleanupObserver = observeEbookReaderChanges({
+            onRefresh: () => {
+                if (Date.now() < suppressOriginalSyncRefreshUntil) return
+                void refreshCurrentChunk()
+            },
+            onNotify: notifyUpdated,
+        })
         cleanupGeometryObserver = observeEbookReaderGeometry({ onMeasure: scheduleAnchorMeasure })
         scheduleAnchorMeasure()
         void loadChunk(ebookReaderStore.currentChatIndex, 'centerFirst')
@@ -475,6 +553,7 @@
 
     onDestroy(() => {
         window.removeEventListener('keydown', handleKeydown)
+        window.removeEventListener(EBOOK_READER_NAVIGATION_EVENT, handleExternalNavigation)
         window.removeEventListener('resize', scheduleAnchorMeasure)
         window.removeEventListener('scroll', scheduleAnchorMeasure, true)
         window.visualViewport?.removeEventListener('resize', scheduleAnchorMeasure)

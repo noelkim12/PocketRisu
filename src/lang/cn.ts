@@ -780,6 +780,7 @@ export const languageChinese = {
     "ebookReaderFontFamilySansSerif": "无衬线",
     "ebookReaderFontFamilyMonospace": "等宽",
     "ebookReaderPageWidth": "页面宽度",
+    "ebookReaderDesktopNavAreaWidth": "桌面翻页区域宽度",
     "ebookReaderBlurImages": "模糊图片",
     "translatorLanguage": "翻译目标语言",
     "translatorType": "翻译器类型",

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as client from './comfyUiClient'
-import { generateComfyVideoFromBlob } from './comfyVideo'
+import * as client from '../comfyUiClient'
+import { generateComfyVideoFromBlob } from '../comfyVideo'
 
 afterEach(() => {
     vi.restoreAllMocks()

@@ -4,6 +4,11 @@ import { forageStorage } from "../globalApi.svelte";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+type BulkReadableStorage = {
+    getItems?: (keys: string[]) => Promise<{key: string, value: Uint8Array}[]>
+    getItem: (key: string) => Promise<Uint8Array | null>
+}
+
 let initPromise: Promise<void> | null = null;
 
 async function ensureStorageReady() {
@@ -36,6 +41,44 @@ export async function readPersistentJson<T>(storageKey: string): Promise<T | nul
         return null;
     }
     return JSON.parse(decoder.decode(data)) as T;
+}
+
+export async function readPersistentJsons<T>(storageKeys: string[]): Promise<Map<string, T | null>> {
+    await ensureStorageReady();
+    const uniqueKeys = [...new Set(storageKeys)];
+    const result = new Map<string, T | null>();
+
+    if (uniqueKeys.length === 0) {
+        return result;
+    }
+
+    const storage: BulkReadableStorage = forageStorage;
+
+    if (storage.getItems) {
+        try {
+            const rows = await storage.getItems(uniqueKeys);
+            for (const key of uniqueKeys) {
+                result.set(key, null);
+            }
+            for (const row of rows) {
+                result.set(row.key, JSON.parse(decoder.decode(row.value)) as T);
+            }
+            return result;
+        } catch (error) {
+            console.warn('Bulk persistent JSON read failed, falling back to parallel reads:', error);
+        }
+    }
+
+    await Promise.all(uniqueKeys.map(async (key) => {
+        try {
+            const data = await storage.getItem(key);
+            result.set(key, data ? JSON.parse(decoder.decode(data)) as T : null);
+        } catch {
+            result.set(key, null);
+        }
+    }));
+
+    return result;
 }
 
 export async function writePersistentJson<T>(storageKey: string, value: T): Promise<void> {

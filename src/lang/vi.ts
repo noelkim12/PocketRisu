@@ -780,6 +780,7 @@ export const languageVietnamese = {
     "ebookReaderFontFamilySansSerif": "Sans serif",
     "ebookReaderFontFamilyMonospace": "Monospace",
     "ebookReaderPageWidth": "Chiều rộng trang",
+    "ebookReaderDesktopNavAreaWidth": "Chiều rộng vùng điều hướng máy tính",
     "ebookReaderBlurImages": "Làm mờ hình ảnh",
     "translatorLanguage": "Ngôn ngữ dịch",
     "translatorType": "Loại dịch giả",

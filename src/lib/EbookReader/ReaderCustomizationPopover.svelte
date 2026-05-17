@@ -1,7 +1,7 @@
 <script lang="ts">
     import { SlidersHorizontalIcon } from '@lucide/svelte'
     import { DBState } from 'src/ts/stores.svelte'
-    import { PAGE_WIDTH_PERCENT_MAX, PAGE_WIDTH_PERCENT_MIN, PAGE_WIDTH_PERCENT_STEP, defaultEbookReaderPrefs, normalizeEbookReaderPrefs, type EbookReaderAppearance, type EbookReaderFontFamily, type EbookReaderPrefs } from './core/preferences'
+    import { DESKTOP_NAV_AREA_WIDTH_PERCENT_MAX, DESKTOP_NAV_AREA_WIDTH_PERCENT_MIN, DESKTOP_NAV_AREA_WIDTH_PERCENT_STEP, PAGE_WIDTH_PERCENT_MAX, PAGE_WIDTH_PERCENT_MIN, PAGE_WIDTH_PERCENT_STEP, defaultEbookReaderPrefs, normalizeEbookReaderPrefs, type EbookReaderAppearance, type EbookReaderFontFamily, type EbookReaderPrefs } from './core/preferences'
     import { readerLabel } from './readerLanguage'
 
     type Props = {
@@ -152,6 +152,11 @@
                 <label class="grid gap-1.5 text-xs text-textcolor2">
                     <span class="flex justify-between gap-2"><span>{readerLabel('ebookReaderPageWidth')}</span><span>{prefs.pageWidth.toFixed(0)}%</span></span>
                     <input class="accent-primary" type="range" min={PAGE_WIDTH_PERCENT_MIN} max={PAGE_WIDTH_PERCENT_MAX} step={PAGE_WIDTH_PERCENT_STEP} value={prefs.pageWidth} oninput={(event) => updatePrefs({ pageWidth: inputNumber(event) })} />
+                </label>
+
+                <label class="grid gap-1.5 text-xs text-textcolor2">
+                    <span class="flex justify-between gap-2"><span>{readerLabel('ebookReaderDesktopNavAreaWidth')}</span><span>{prefs.desktopNavAreaWidth.toFixed(0)}%</span></span>
+                    <input class="accent-primary" type="range" min={DESKTOP_NAV_AREA_WIDTH_PERCENT_MIN} max={DESKTOP_NAV_AREA_WIDTH_PERCENT_MAX} step={DESKTOP_NAV_AREA_WIDTH_PERCENT_STEP} value={prefs.desktopNavAreaWidth} oninput={(event) => updatePrefs({ desktopNavAreaWidth: inputNumber(event) })} />
                 </label>
 
                 <label class="flex items-center justify-between gap-3 rounded-lg border border-darkborderc bg-bg px-3 py-2 text-xs text-textcolor2">

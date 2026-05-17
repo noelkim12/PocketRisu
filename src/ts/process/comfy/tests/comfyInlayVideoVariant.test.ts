@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as inlayMeta from 'src/ts/process/files/inlayMeta'
-import { getComfyVideoDisplayAssetId, setComfyVideoDisplayAsset } from './comfyInlayVideoVariant'
+import { getComfyVideoDisplayAssetId, setComfyVideoDisplayAsset } from '../comfyInlayVideoVariant'
 
 vi.mock('src/ts/process/files/inlayMeta', () => ({
     getInlayMeta: vi.fn(),

@@ -10,6 +10,7 @@ describe('ebook reader preferences', () => {
             paragraphSpacing: 0.65,
             fontFamily: 'inherit',
             pageWidth: 75,
+            desktopNavAreaWidth: 20,
             blurImages: false,
         })
         expect(normalizeEbookReaderPrefs(undefined)).toEqual(defaultEbookReaderPrefs)
@@ -21,11 +22,13 @@ describe('ebook reader preferences', () => {
             lineHeight: Number.NaN,
             paragraphSpacing: Number.NaN,
             pageWidth: Number.POSITIVE_INFINITY,
+            desktopNavAreaWidth: Number.NaN,
         })).toMatchObject({
             fontSize: 12,
             lineHeight: 1.65,
             paragraphSpacing: 0.65,
             pageWidth: 100,
+            desktopNavAreaWidth: 20,
         })
 
         expect(normalizeEbookReaderPrefs({
@@ -33,11 +36,17 @@ describe('ebook reader preferences', () => {
             lineHeight: 0.1,
             paragraphSpacing: -1,
             pageWidth: 10,
+            desktopNavAreaWidth: 1,
         })).toMatchObject({
             fontSize: 28,
             lineHeight: 1.2,
             paragraphSpacing: 0,
             pageWidth: 50,
+            desktopNavAreaWidth: 5,
+        })
+
+        expect(normalizeEbookReaderPrefs({ desktopNavAreaWidth: 99 })).toMatchObject({
+            desktopNavAreaWidth: 40,
         })
 
         expect(normalizeEbookReaderPrefs({ pageWidth: 900 })).toMatchObject({
@@ -102,6 +111,7 @@ describe('ebook reader preferences', () => {
             paragraphSpacing: 0.8,
             fontFamily: 'serif',
             pageWidth: 80,
+            desktopNavAreaWidth: 12,
             blurImages: true,
         })).toEqual({
             '--ebook-reader-font-size': '18px',
@@ -109,6 +119,7 @@ describe('ebook reader preferences', () => {
             '--ebook-reader-paragraph-spacing': '0.8em',
             '--ebook-reader-font-family': 'serif',
             '--ebook-reader-page-width': '80%',
+            '--ebook-reader-desktop-nav-area-width': '12%',
             '--ebook-reader-image-filter': 'blur(8px)',
         })
     })
