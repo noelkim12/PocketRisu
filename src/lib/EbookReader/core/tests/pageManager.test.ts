@@ -65,6 +65,47 @@ describe('ebook reader page manager', () => {
         expect(pages[2].html).toContain('<details')
     })
 
+    it('extracts inline inlay images to standalone pages separate from surrounding text', () => {
+        const pages = paginateCapturedMessages([
+            message(13, '<p>intro before <img data-inlay-id="inline-inlay" src="/api/asset/inline-inlay"> after outro</p>'),
+        ], {
+            dimensions: { width: 320, height: 200 },
+            mode: 'mobile',
+            measureText: () => 12,
+        })
+
+        expect(pages).toHaveLength(3)
+        expect(pages[0].html).toContain('intro before')
+        expect(pages[0].html).not.toContain('<img')
+        expect(pages[1].html).toContain('<img')
+        expect(pages[1].html).toContain('data-inlay-id="inline-inlay"')
+        expect(pages[1].html).toContain('loading="eager"')
+        expect(pages[1].html).not.toContain('intro before')
+        expect(pages[1].html).not.toContain('after outro')
+        expect(pages[2].html).toContain('after outro')
+        expect(pages[2].html).not.toContain('<img')
+    })
+
+    it('keeps Comfy inlay image wrappers as standalone pages without captured controls', () => {
+        const pages = paginateCapturedMessages([
+            message(14, '<p>intro</p><div class="x-risu-risu-comfy-video-image-wrap x-risu-risu-inlay-image" style="--risu-comfy-video-delay: 3000ms;"><img data-inlay-id="wrapped-inlay" src="/api/asset/wrapped-inlay"><div class="x-risu-risu-comfy-video-action-bar"><button type="button" class="x-risu-risu-comfy-video-action-button">Generate video</button><div class="x-risu-risu-comfy-video-generating-status" hidden>Generating video...</div></div></div><p>outro</p>'),
+        ], {
+            dimensions: { width: 320, height: 200 },
+            mode: 'desktop',
+            measureText: () => 12,
+        })
+
+        expect(pages).toHaveLength(3)
+        expect(pages[1].html).toContain('x-risu-risu-inlay-image')
+        expect(pages[1].html).toContain('x-risu-risu-comfy-video-image-wrap')
+        expect(pages[1].html).toContain('--risu-comfy-video-delay: 3000ms')
+        expect(pages[1].html).toContain('data-inlay-id="wrapped-inlay"')
+        expect(pages[1].html).toContain('x-risu-risu-comfy-video-action-bar')
+        expect(pages[1].html).toContain('loading="eager"')
+        expect(pages[1].html).not.toContain('Generate video')
+        expect(pages.map((page) => page.chatPageIndex)).toEqual([0, 1, 2])
+    })
+
     it('treats rich status widgets as scrollable separate pages', () => {
         const pages = paginateCapturedMessages([
             message(6, '<p>intro</p><div class="x-risu-dos-status"><style>.x-risu-dos-status{max-width:480px}</style><div>status panel</div><button type="button">action</button></div><p>outro</p>'),
@@ -170,5 +211,33 @@ describe('ebook reader page manager', () => {
         expect(pages.length).toBeGreaterThan(3)
         expect(pages.every((page) => page.chatIndex === 5)).toBe(true)
         expect(htmlToText(pages.map((page) => page.html).join(''))).toContain('oversized sentence needs binary word splitting')
+    })
+
+    it('assigns chat-local page indexes that reset for each chat index', () => {
+        const pages = paginateCapturedMessages([
+            message(10, '<p>first chat first page</p><p>first chat second page</p>'),
+            message(11, '<p>second chat first page</p>'),
+        ], {
+            dimensions: { width: 320, height: 20 },
+            measureText: () => 12,
+        })
+
+        expect(pages.map((page) => ({ chatIndex: page.chatIndex, chatPageIndex: page.chatPageIndex }))).toEqual([
+            { chatIndex: 10, chatPageIndex: 0 },
+            { chatIndex: 10, chatPageIndex: 1 },
+            { chatIndex: 11, chatPageIndex: 0 },
+        ])
+    })
+
+    it('keeps global pageIndex while adding chat-local page indexes', () => {
+        const pages = paginateCapturedMessages([
+            message(12, '<p>alpha</p><p>beta</p>'),
+        ], {
+            dimensions: { width: 320, height: 20 },
+            measureText: () => 12,
+        })
+
+        expect(pages.map((page) => page.pageIndex)).toEqual([0, 1])
+        expect(pages.map((page) => page.chatPageIndex)).toEqual([0, 1])
     })
 })

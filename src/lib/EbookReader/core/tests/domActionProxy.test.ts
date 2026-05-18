@@ -9,6 +9,7 @@ vi.mock('../../../../ts/stores.svelte', () => ({
         open: false,
         currentChatIndex: -1,
         currentPageIndex: 0,
+        currentChatPageIndex: 0,
         status: 'idle',
     },
     ScrollToMessageStore: { value: -1 },

@@ -16,9 +16,10 @@
 
     let { pages, leftPageIndex, status, errorMessage, onPrevious, onNext }: Props = $props()
     let leftPage = $derived(pages[leftPageIndex] ?? null)
-    let rightPage = $derived(pages[leftPageIndex + 1] ?? null)
+    let rawRightPage = $derived(pages[leftPageIndex + 1] ?? null)
+    let rightPage = $derived(rawRightPage && leftPage && rawRightPage.chatIndex === leftPage.chatIndex ? rawRightPage : null)
     let showLeftSpeaker = $derived(Boolean(leftPage && pages[leftPageIndex - 1]?.chatIndex !== leftPage.chatIndex))
-    let showRightSpeaker = $derived(Boolean(rightPage && leftPage?.chatIndex !== rightPage.chatIndex))
+    let showRightSpeaker = $derived(false)
     let leftPageContainsImage = $derived(Boolean(leftPage?.html.includes('<img')))
     let rightPageContainsImage = $derived(Boolean(rightPage?.html.includes('<img')))
     let leftPageIsScrollable = $derived(leftPage?.overflowMode === 'scrollable')
@@ -29,7 +30,7 @@
     async function resolveVisibleInlays(...roots: Array<HTMLElement | null>) {
         await tick()
         for (const root of roots) {
-            if (root) resolveInlayPlaceholders(root)
+            if (root) resolveInlayPlaceholders(root, { eager: true })
         }
     }
 
@@ -60,7 +61,7 @@
             {/if}
         </div>
         {#if leftPage}
-            <div class="shrink-0 border-t border-darkborderc px-4 py-2 text-xs text-textcolor2">{leftPage.pageIndex + 1}</div>
+            <div class="shrink-0 border-t border-darkborderc px-4 py-2 text-xs text-textcolor2">{leftPage.chatPageIndex + 1}</div>
         {/if}
     </article>
 
@@ -80,7 +81,7 @@
             {/if}
         </div>
         {#if rightPage}
-            <div class="shrink-0 border-t border-darkborderc px-4 py-2 text-right text-xs text-textcolor2">{rightPage.pageIndex + 1}</div>
+            <div class="shrink-0 border-t border-darkborderc px-4 py-2 text-right text-xs text-textcolor2">{rightPage.chatPageIndex + 1}</div>
         {/if}
     </article>
 </div>

@@ -24,6 +24,7 @@ const DELEGATION_ATTRIBUTE_SELECTOR = '[data-ebook-reader-content-button], [data
 const DELEGATION_ATTRIBUTES = ['data-ebook-reader-content-button', 'data-ebook-reader-chat-index', 'data-ebook-reader-button-ordinal']
 const READER_POPOVER_ATTRIBUTE = 'data-ebook-reader-popover'
 const COMFY_VIDEO_CAPTURED_CONTROL_SELECTOR = '.x-risu-risu-comfy-video-action-button, .x-risu-risu-comfy-video-generating-status'
+const INLAY_RESOLUTION_STATE_SELECTOR = '[data-inlay-id][data-inlay-type][data-inlay-resolving]'
 const RICH_WIDGET_SELECTOR = '.x-risu-dos-status, [data-ebook-reader-widget], [data-ebook-reader-rich-block], [data-ebook-reader-unbreakable]'
 const BLOCK_ELEMENTS = new Set([
     'p', 'div', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'blockquote', 'pre', 'hr',
@@ -78,6 +79,7 @@ export function annotateContentButtons(html: string, chatIndex: number): string 
     container.innerHTML = html
     normalizeReaderImages(container)
     removeCapturedComfyVideoControls(container)
+    resetCapturedInlayResolutionState(container)
 
     for (const element of Array.from(container.querySelectorAll<HTMLElement>(DELEGATION_ATTRIBUTE_SELECTOR))) {
         for (const attribute of DELEGATION_ATTRIBUTES) element.removeAttribute(attribute)
@@ -104,6 +106,12 @@ function normalizeReaderImages(container: HTMLElement) {
 function removeCapturedComfyVideoControls(container: HTMLElement) {
     for (const control of Array.from(container.querySelectorAll<HTMLElement>(COMFY_VIDEO_CAPTURED_CONTROL_SELECTOR))) {
         control.remove()
+    }
+}
+
+function resetCapturedInlayResolutionState(container: HTMLElement) {
+    for (const placeholder of Array.from(container.querySelectorAll<HTMLElement>(INLAY_RESOLUTION_STATE_SELECTOR))) {
+        placeholder.removeAttribute('data-inlay-resolving')
     }
 }
 
@@ -144,6 +152,7 @@ export function paginateCapturedMessages(messages: CapturedReaderMessage[], opti
         const measureElement = (element: HTMLElement) => measureSingleElement(element, options)
         const textSplitter = createTextSplitter(options.mode ?? 'desktop', measureElement)
         const pages: ReaderPage[] = []
+        const chatPageCounters = new Map<number, number>()
 
         for (const message of messages) {
             const content = document.createElement('div')
@@ -153,7 +162,9 @@ export function paginateCapturedMessages(messages: CapturedReaderMessage[], opti
             const pageSegments = splitIntoPageHtml(content, measureContainer, textSplitter, measureElement)
             for (const segment of pageSegments) {
                 if (segment.html.trim() === '') continue
-                pages.push({ pageIndex: pages.length, chatIndex: message.chatIndex, headerInfo: message.headerInfo, html: segment.html, overflowMode: segment.overflowMode })
+                const chatPageIndex = chatPageCounters.get(message.chatIndex) ?? 0
+                chatPageCounters.set(message.chatIndex, chatPageIndex + 1)
+                pages.push({ pageIndex: pages.length, chatPageIndex, chatIndex: message.chatIndex, headerInfo: message.headerInfo, html: segment.html, overflowMode: segment.overflowMode })
             }
         }
 
@@ -218,6 +229,33 @@ function splitIntoPageHtml(
     for (const element of Array.from(content.children)) {
         if (!(element instanceof HTMLElement)) continue
 
+        const standaloneImageSegments = splitMixedImageElement(element)
+        if (standaloneImageSegments.length > 1) {
+            for (const segment of standaloneImageSegments) {
+                if (isSeparatePageBlock(segment)) {
+                    pushCurrentPage()
+                    pages.push(createPageSegment([segment], isScrollableRichBlock(segment) ? 'scrollable' : undefined))
+                    continue
+                }
+
+                const candidate = [...currentPageContent, segment]
+                if (measureElements(candidate, measureContainer, measureElement) <= availableHeight) {
+                    currentPageContent.push(segment)
+                    continue
+                }
+
+                pushCurrentPage()
+
+                if (textSplitter.isSplittable(segment)) {
+                    for (const splitElement of textSplitter.splitElement(segment, availableHeight)) addElementToPage(splitElement)
+                    continue
+                }
+
+                addElementToPage(segment)
+            }
+            continue
+        }
+
         if (isSeparatePageBlock(element)) {
             pushCurrentPage()
             pages.push(createPageSegment([element.cloneNode(true) as HTMLElement], isScrollableRichBlock(element) ? 'scrollable' : undefined))
@@ -244,11 +282,77 @@ function splitIntoPageHtml(
     return pages
 }
 
-function isSeparatePageBlock(element: HTMLElement): boolean {
+function splitMixedImageElement(element: HTMLElement): HTMLElement[] {
+    if (!element.querySelector('img')) return [element]
+    if (isImagePageBlock(element)) return [element]
+
+    const segments: HTMLElement[] = []
+    let currentTextSegment = createEmptyElementClone(element)
+
+    const flushTextSegment = () => {
+        if (!hasMeaningfulContent(currentTextSegment)) {
+            currentTextSegment = createEmptyElementClone(element)
+            return
+        }
+
+        segments.push(currentTextSegment)
+        currentTextSegment = createEmptyElementClone(element)
+    }
+
+    for (const child of Array.from(element.childNodes)) {
+        if (child instanceof HTMLElement && isImagePageBlock(child)) {
+            flushTextSegment()
+            segments.push(child.cloneNode(true) as HTMLElement)
+            continue
+        }
+
+        currentTextSegment.appendChild(child.cloneNode(true))
+    }
+
+    flushTextSegment()
+    return segments.length > 1 ? segments : [element]
+}
+
+function createEmptyElementClone(element: HTMLElement): HTMLElement {
+    const clone = document.createElement(element.tagName.toLowerCase())
+    for (const attribute of Array.from(element.attributes)) clone.setAttribute(attribute.name, attribute.value)
+    return clone
+}
+
+function hasMeaningfulContent(element: HTMLElement): boolean {
+    for (const node of Array.from(element.childNodes)) {
+        if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '') return true
+        if (node instanceof HTMLBRElement) continue
+        if (node instanceof HTMLElement) return true
+    }
+
+    return false
+}
+
+function isImagePageBlock(element: HTMLElement): boolean {
     return element.tagName === 'IMG'
+        || element.classList.contains('x-risu-risu-inlay-image')
+        || element.classList.contains('x-risu-image-container')
+        || element.tagName === 'FIGURE'
+        || isImageOnlyElement(element)
+}
+
+function isImageOnlyElement(element: HTMLElement): boolean {
+    const meaningfulChildren = Array.from(element.childNodes).filter((node) => {
+        if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? '').trim() !== ''
+        if (node instanceof HTMLBRElement) return false
+        return node instanceof HTMLElement
+    })
+
+    return meaningfulChildren.length === 1
+        && meaningfulChildren[0] instanceof HTMLElement
+        && (meaningfulChildren[0].tagName === 'IMG' || isImagePageBlock(meaningfulChildren[0]))
+}
+
+function isSeparatePageBlock(element: HTMLElement): boolean {
+    return isImagePageBlock(element)
         || element.tagName === 'DETAILS'
         || element.querySelector('img') !== null
-        || (element.tagName === 'DIV' && element.classList.contains('x-risu-image-container'))
         || isScrollableRichBlock(element)
 }
 

@@ -20,7 +20,7 @@
 
     async function resolveVisibleInlays() {
         await tick()
-        if (pageBodyElement) resolveInlayPlaceholders(pageBodyElement)
+        if (pageBodyElement) resolveInlayPlaceholders(pageBodyElement, { eager: true })
     }
 
     $effect(() => {
@@ -46,6 +46,6 @@
         {/if}
     </div>
     {#if page}
-        <div class="shrink-0 px-3 py-2 text-center text-xs text-textcolor2">{page.pageIndex + 1}</div>
+        <div class="shrink-0 px-3 py-2 text-center text-xs text-textcolor2">{page.chatPageIndex + 1}</div>
     {/if}
 </article>

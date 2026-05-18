@@ -20,14 +20,16 @@
     }
 
     let { pages, currentPageIndex, status, header = null, showUpdated, errorMessage, onAction, onPrevious, onNext, onClose, role = 'region', ariaModal }: Props = $props()
-    let pageLabel = $derived(pages.length > 0 ? `${currentPageIndex + 1}-${Math.min(currentPageIndex + 2, pages.length)} / ${pages.length}` : readerLabel('ebookReader'))
     let leftPage = $derived(pages[currentPageIndex] ?? null)
-    let rightPage = $derived(pages[currentPageIndex + 1] ?? null)
-    let chatIndexLabel = $derived.by(() => {
-        if (!leftPage) return ''
-        if (!rightPage || rightPage.chatIndex === leftPage.chatIndex) return `ChatIndex ${leftPage.chatIndex}`
-        return `ChatIndex ${leftPage.chatIndex}-${rightPage.chatIndex}`
+    let rawRightPage = $derived(pages[currentPageIndex + 1] ?? null)
+    let rightPage = $derived(rawRightPage && leftPage && rawRightPage.chatIndex === leftPage.chatIndex ? rawRightPage : null)
+    let chatPageCount = $derived(leftPage ? pages.filter((page) => page.chatIndex === leftPage.chatIndex).length : 0)
+    let pageLabel = $derived.by(() => {
+        if (!leftPage) return readerLabel('ebookReader')
+        if (rightPage) return `${leftPage.chatPageIndex + 1}-${rightPage.chatPageIndex + 1} / ${chatPageCount}`
+        return `${leftPage.chatPageIndex + 1} / ${chatPageCount}`
     })
+    let chatIndexLabel = $derived(leftPage ? `ChatIndex ${leftPage.chatIndex}` : '')
 </script>
 
 <div class="flex h-full w-full flex-col overflow-hidden rounded-xl border border-darkborderc bg-darkbg/95 text-textcolor shadow-xl" {role} aria-modal={ariaModal} aria-labelledby="ebook-reader-title">

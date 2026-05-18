@@ -26,7 +26,8 @@
     let detachSwipe: (() => void) | null = null
     let page = $derived(pages[currentPageIndex] ?? null)
     let previousPage = $derived(pages[currentPageIndex - 1] ?? null)
-    let pageLabel = $derived(pages.length > 0 ? `${currentPageIndex + 1} / ${pages.length}` : readerLabel('ebookReader'))
+    let chatPageCount = $derived(page ? pages.filter((candidate) => candidate.chatIndex === page.chatIndex).length : 0)
+    let pageLabel = $derived(page ? `${page.chatPageIndex + 1} / ${chatPageCount}` : readerLabel('ebookReader'))
     let chatIndexLabel = $derived(page ? `ChatIndex ${page.chatIndex}` : '')
 
     $effect(() => {

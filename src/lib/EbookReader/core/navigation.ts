@@ -8,11 +8,12 @@ type SpreadOptions = {
 
 export type ReaderPageAnchor = {
     chatIndex: ChatIndex
-    pageOffset: number
+    chatPageIndex: number
 }
 
 type ChatIndexedPage = {
     chatIndex: ChatIndex
+    chatPageIndex: number
 }
 
 function normalizeInteger(value: number) {
@@ -31,25 +32,38 @@ export function getSpreadPageIndex(pageIndex: number, pageCount: number, options
     return clamped % 2 === 0 ? clamped : clamped - 1
 }
 
+export function getChatAwareSpreadPageIndex<T extends ChatIndexedPage>(pages: T[], pageIndex: number, options: SpreadOptions = {}): number {
+    const clamped = clampPageIndex(pageIndex, pages.length)
+    if (options.mode === 'single') return clamped
+
+    const page = pages[clamped]
+    if (!page) return clamped
+
+    if (page.chatPageIndex % 2 === 1 && clamped > 0) {
+        const previousPage = pages[clamped - 1]
+        if (previousPage?.chatIndex === page.chatIndex) return clamped - 1
+    }
+
+    return clamped
+}
+
 export function getReaderPageAnchor<T extends ChatIndexedPage>(pages: T[], pageIndex: number): ReaderPageAnchor | null {
     const page = pages[clampPageIndex(pageIndex, pages.length)]
     if (!page) return null
 
-    const pageOffset = pages
-        .slice(0, clampPageIndex(pageIndex, pages.length) + 1)
-        .filter((candidate) => candidate.chatIndex === page.chatIndex)
-        .length - 1
-
-    return { chatIndex: page.chatIndex, pageOffset: Math.max(0, pageOffset) }
+    return { chatIndex: page.chatIndex, chatPageIndex: Math.max(0, normalizeInteger(page.chatPageIndex)) }
 }
 
 export function resolveReaderPageAnchor<T extends ChatIndexedPage>(pages: T[], anchor: ReaderPageAnchor, fallbackPageIndex = 0): number {
+    const exactIndex = pages.findIndex((page) => page.chatIndex === anchor.chatIndex && page.chatPageIndex === anchor.chatPageIndex)
+    if (exactIndex >= 0) return exactIndex
+
     const matchingIndexes = pages
         .map((page, index) => page.chatIndex === anchor.chatIndex ? index : -1)
         .filter((index) => index >= 0)
 
     if (matchingIndexes.length === 0) return clampPageIndex(fallbackPageIndex, pages.length)
-    return matchingIndexes[Math.min(Math.max(0, normalizeInteger(anchor.pageOffset)), matchingIndexes.length - 1)]
+    return matchingIndexes[Math.min(Math.max(0, normalizeInteger(anchor.chatPageIndex)), matchingIndexes.length - 1)]
 }
 
 export function getNextChunkCenter(currentChunk: Pick<CaptureChunkResult, 'endIndex'>, messageCount?: number): number {

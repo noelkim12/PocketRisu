@@ -3,7 +3,7 @@
     import DesktopBookViewer from './desktop/DesktopBookViewer.svelte'
     import MobileBookViewer from './mobile/MobileBookViewer.svelte'
     import { captureChunk, waitForChatElement } from './core/chunkCapture'
-    import { clampPageIndex, getNextChunkCenter, getPrevChunkCenter, getReaderPageAnchor, getSpreadPageIndex, resolveReaderPageAnchor, type ReaderPageAnchor } from './core/navigation'
+    import { clampPageIndex, getChatAwareSpreadPageIndex, getNextChunkCenter, getPrevChunkCenter, getReaderPageAnchor, resolveReaderPageAnchor, type ReaderPageAnchor } from './core/navigation'
     import { EBOOK_READER_NAVIGATION_EVENT, type EbookReaderNavigationEventDetail } from './core/navigationEvents'
     import { observeEbookReaderChanges, observeEbookReaderGeometry } from './core/observer'
     import { DEFAULT_PAGINATION_DIMENSIONS, paginateCapturedMessages } from './core/pageManager'
@@ -61,7 +61,7 @@
     }))
     let normalizedPageIndex = $derived(isMobile
         ? clampPageIndex(ebookReaderStore.currentPageIndex, pages.length)
-        : getSpreadPageIndex(ebookReaderStore.currentPageIndex, pages.length))
+        : getChatAwareSpreadPageIndex(pages, ebookReaderStore.currentPageIndex))
     let anchoredPanelStyle = $derived(anchorRect
         ? `top: ${anchorRect.top}px; left: ${anchorRect.left}px; width: ${anchorRect.width}px; height: ${anchorRect.height}px;`
         : 'display: none;')
@@ -190,6 +190,7 @@
         const page = pages[clampPageIndex(pageIndex, pages.length)]
         if (!page) return
         ebookReaderStore.currentChatIndex = page.chatIndex
+        ebookReaderStore.currentChatPageIndex = page.chatPageIndex
         headerInfo = page.headerInfo
         if (geometryChatIndex !== page.chatIndex) {
             geometryChatIndex = page.chatIndex
@@ -294,7 +295,7 @@
             const rawTarget = resolveTargetPageIndex(targetPage, nextPages, center)
             ebookReaderStore.currentPageIndex = isMobile
                 ? clampPageIndex(rawTarget, nextPages.length)
-                : getSpreadPageIndex(rawTarget, nextPages.length)
+                : getChatAwareSpreadPageIndex(nextPages, rawTarget)
             setVisibleChatIndex(ebookReaderStore.currentPageIndex)
             if (nextPages.length === 0) errorText = readerLabel('ebookReaderPaginationFailed')
             ebookReaderStore.status = nextPages.length > 0 ? 'ready' : 'error'
@@ -327,14 +328,30 @@
         }, 1800)
     }
 
+    function hasSameChatRightPage(pageIndex: number) {
+        const leftPage = pages[clampPageIndex(pageIndex, pages.length)]
+        const rightPage = pages[pageIndex + 1]
+        return Boolean(leftPage && rightPage && rightPage.chatIndex === leftPage.chatIndex)
+    }
+
     function nextPage() {
-        const step = isMobile ? 1 : 2
-        const nextIndex = normalizedPageIndex + step
-        if (nextIndex < pages.length) {
-            ebookReaderStore.currentPageIndex = isMobile ? nextIndex : getSpreadPageIndex(nextIndex, pages.length)
-            setVisibleChatIndex(ebookReaderStore.currentPageIndex)
-            return
+        if (isMobile) {
+            const nextIndex = normalizedPageIndex + 1
+            if (nextIndex < pages.length) {
+                ebookReaderStore.currentPageIndex = nextIndex
+                setVisibleChatIndex(ebookReaderStore.currentPageIndex)
+                return
+            }
+        } else {
+            const currentSpreadStart = getChatAwareSpreadPageIndex(pages, normalizedPageIndex)
+            const nextIndex = currentSpreadStart + (hasSameChatRightPage(currentSpreadStart) ? 2 : 1)
+            if (nextIndex < pages.length) {
+                ebookReaderStore.currentPageIndex = getChatAwareSpreadPageIndex(pages, nextIndex)
+                setVisibleChatIndex(ebookReaderStore.currentPageIndex)
+                return
+            }
         }
+
         if (!currentChunk) return
         const nextCenter = getNextChunkCenter(currentChunk, messageCount)
         if (nextCenter <= currentChunk.endIndex) return
@@ -342,13 +359,23 @@
     }
 
     function previousPage() {
-        const step = isMobile ? 1 : 2
-        const previousIndex = normalizedPageIndex - step
-        if (previousIndex >= 0) {
-            ebookReaderStore.currentPageIndex = isMobile ? previousIndex : getSpreadPageIndex(previousIndex, pages.length)
-            setVisibleChatIndex(ebookReaderStore.currentPageIndex)
-            return
+        if (isMobile) {
+            const previousIndex = normalizedPageIndex - 1
+            if (previousIndex >= 0) {
+                ebookReaderStore.currentPageIndex = previousIndex
+                setVisibleChatIndex(ebookReaderStore.currentPageIndex)
+                return
+            }
+        } else {
+            const currentSpreadStart = getChatAwareSpreadPageIndex(pages, normalizedPageIndex)
+            const previousIndex = currentSpreadStart - 1
+            if (previousIndex >= 0) {
+                ebookReaderStore.currentPageIndex = getChatAwareSpreadPageIndex(pages, previousIndex)
+                setVisibleChatIndex(ebookReaderStore.currentPageIndex)
+                return
+            }
         }
+
         if (!currentChunk) return
         const previousCenter = getPrevChunkCenter(currentChunk, messageCount)
         if (previousCenter >= currentChunk.startIndex) return
@@ -704,14 +731,7 @@
         justify-content: center;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img)) {
-        display: flex;
-        min-height: 0;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) > *) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image > *) {
         box-sizing: border-box;
         min-width: 0;
         min-height: 0;
@@ -731,9 +751,9 @@
         max-width: 100%;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) figure),
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-image-container),
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) .x-risu-risu-inlay-image) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image figure),
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image .x-risu-image-container),
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image .x-risu-risu-inlay-image) {
         box-sizing: border-box;
         display: flex;
         min-width: 0;
@@ -743,7 +763,7 @@
         margin: 0;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) :is(div, figure, button, a, span):has(img)) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image :is(div, figure, button, a, span):has(img)) {
         box-sizing: border-box;
         display: flex;
         min-width: 0;
@@ -756,12 +776,12 @@
         justify-content: center;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body:has(img) button:has(img)) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image button:has(img)) {
         padding: 0;
         overflow: hidden;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body img) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image img) {
         display: block;
         flex-shrink: 1;
         max-width: 100% !important;
@@ -772,8 +792,8 @@
         object-position: center !important;
     }
 
-    .ebook-reader-overlay :global(.ebook-reader-page-body img.root-loaded-image-dynamic),
-    .ebook-reader-overlay :global(.ebook-reader-page-body img.root-loaded-image-dynamic:hover) {
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image img.root-loaded-image-dynamic),
+    .ebook-reader-overlay :global(.ebook-reader-page-body-image img.root-loaded-image-dynamic:hover) {
         width: 100% !important;
         height: 100% !important;
         max-height: 100% !important;

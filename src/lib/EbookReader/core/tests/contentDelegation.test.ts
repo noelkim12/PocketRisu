@@ -8,6 +8,7 @@ vi.mock('../../../ts/stores.svelte', () => ({
         open: false,
         currentChatIndex: -1,
         currentPageIndex: 0,
+        currentChatPageIndex: 0,
         status: 'idle',
     },
     ScrollToMessageStore: { value: -1 },
@@ -75,6 +76,27 @@ describe('ebook reader content delegation capture', () => {
         expect(buttons.every((button) => button.matches(CONTENT_BUTTON_SELECTOR))).toBe(true)
         expect(buttons.map((button) => button.getAttribute('data-ebook-reader-chat-index'))).toEqual(['7', '7'])
         expect(buttons.map((button) => button.getAttribute('data-ebook-reader-button-ordinal'))).toEqual(['0', '1'])
+    })
+
+    it('strips stale inlay resolving markers so Ebook Reader can resolve captured placeholders', () => {
+        const html = annotateContentButtons(`
+            <p>intro</p>
+            <div
+                class="risu-inlay-placeholder risu-loading-spinner"
+                data-inlay-id="mid-capture-inlay"
+                data-inlay-type="inlay"
+                data-inlay-resolving="true"
+            ></div>
+            <p>outro</p>
+        `, 8)
+        const container = document.createElement('div')
+        container.innerHTML = html
+        const placeholder = container.querySelector<HTMLElement>('[data-inlay-id="mid-capture-inlay"]')!
+
+        expect(placeholder).not.toBeNull()
+        expect(placeholder.getAttribute('data-inlay-id')).toBe('mid-capture-inlay')
+        expect(placeholder.getAttribute('data-inlay-type')).toBe('inlay')
+        expect(placeholder.hasAttribute('data-inlay-resolving')).toBe(false)
     })
 
     it('retargets copied popover controls to reader-local popover ids', () => {

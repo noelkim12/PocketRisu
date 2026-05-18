@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampPageIndex, getNextChunkCenter, getPrevChunkCenter, getReaderPageAnchor, getSpreadPageIndex, resolveReaderPageAnchor } from '../navigation'
+import { clampPageIndex, getChatAwareSpreadPageIndex, getNextChunkCenter, getPrevChunkCenter, getReaderPageAnchor, getSpreadPageIndex, resolveReaderPageAnchor } from '../navigation'
 import { EBOOK_READER_NAVIGATION_EVENT, dispatchEbookReaderNavigation, type EbookReaderNavigationEventDetail } from '../navigationEvents'
 import type { CaptureChunkResult } from '../readerTypes'
 
@@ -42,48 +42,77 @@ describe('ebook reader navigation', () => {
         expect(getPrevChunkCenter(chunk(-1, 3), 8)).toBe(-1)
     })
 
-    it('anchors a page by chat index and offset within that chat', () => {
+    it('anchors a page by chat index and chat-local page index', () => {
         const pages = [
-            { chatIndex: 1 },
-            { chatIndex: 2 },
-            { chatIndex: 2 },
-            { chatIndex: 3 },
-            { chatIndex: 3 },
-            { chatIndex: 3 },
+            { chatIndex: 1, chatPageIndex: 0 },
+            { chatIndex: 2, chatPageIndex: 0 },
+            { chatIndex: 2, chatPageIndex: 1 },
+            { chatIndex: 3, chatPageIndex: 0 },
+            { chatIndex: 3, chatPageIndex: 1 },
+            { chatIndex: 3, chatPageIndex: 2 },
         ]
 
-        expect(getReaderPageAnchor(pages, 4)).toEqual({ chatIndex: 3, pageOffset: 1 })
-        expect(resolveReaderPageAnchor(pages, { chatIndex: 3, pageOffset: 1 })).toBe(4)
+        expect(getReaderPageAnchor(pages, 4)).toEqual({ chatIndex: 3, chatPageIndex: 1 })
+        expect(resolveReaderPageAnchor(pages, { chatIndex: 3, chatPageIndex: 1 })).toBe(4)
     })
 
-    it('keeps the same chat anchor when earlier pages are inserted or removed', () => {
+    it('keeps the same chat-local anchor when earlier chats insert or remove pages', () => {
         const before = [
-            { chatIndex: 1 },
-            { chatIndex: 1 },
-            { chatIndex: 2 },
-            { chatIndex: 3 },
-            { chatIndex: 3 },
+            { chatIndex: 1, chatPageIndex: 0 },
+            { chatIndex: 1, chatPageIndex: 1 },
+            { chatIndex: 2, chatPageIndex: 0 },
+            { chatIndex: 3, chatPageIndex: 0 },
+            { chatIndex: 3, chatPageIndex: 1 },
         ]
         const after = [
-            { chatIndex: 1 },
-            { chatIndex: 2 },
-            { chatIndex: 2 },
-            { chatIndex: 3 },
-            { chatIndex: 3 },
-            { chatIndex: 3 },
+            { chatIndex: 1, chatPageIndex: 0 },
+            { chatIndex: 2, chatPageIndex: 0 },
+            { chatIndex: 2, chatPageIndex: 1 },
+            { chatIndex: 3, chatPageIndex: 0 },
+            { chatIndex: 3, chatPageIndex: 1 },
+            { chatIndex: 3, chatPageIndex: 2 },
         ]
 
         const anchor = getReaderPageAnchor(before, 4)
 
-        expect(anchor).toEqual({ chatIndex: 3, pageOffset: 1 })
+        expect(anchor).toEqual({ chatIndex: 3, chatPageIndex: 1 })
         expect(anchor ? resolveReaderPageAnchor(after, anchor) : -1).toBe(4)
     })
 
-    it('clamps chat-relative page offsets when the target chat has fewer pages after repagination', () => {
-        const pages = [{ chatIndex: 4 }, { chatIndex: 4 }]
+    it('clamps chat-local page indexes when the target chat has fewer pages after repagination', () => {
+        const pages = [
+            { chatIndex: 4, chatPageIndex: 0 },
+            { chatIndex: 4, chatPageIndex: 1 },
+        ]
 
-        expect(resolveReaderPageAnchor(pages, { chatIndex: 4, pageOffset: 9 })).toBe(1)
-        expect(resolveReaderPageAnchor(pages, { chatIndex: 99, pageOffset: 0 }, 7)).toBe(1)
+        expect(resolveReaderPageAnchor(pages, { chatIndex: 4, chatPageIndex: 9 })).toBe(1)
+        expect(resolveReaderPageAnchor(pages, { chatIndex: 99, chatPageIndex: 0 }, 7)).toBe(1)
+    })
+
+    it('normalizes desktop spreads within the same chat index only', () => {
+        const pages = [
+            { chatIndex: 1, chatPageIndex: 0 },
+            { chatIndex: 1, chatPageIndex: 1 },
+            { chatIndex: 2, chatPageIndex: 0 },
+            { chatIndex: 2, chatPageIndex: 1 },
+        ]
+
+        expect(getChatAwareSpreadPageIndex(pages, 0)).toBe(0)
+        expect(getChatAwareSpreadPageIndex(pages, 1)).toBe(0)
+        expect(getChatAwareSpreadPageIndex(pages, 2)).toBe(2)
+        expect(getChatAwareSpreadPageIndex(pages, 3)).toBe(2)
+    })
+
+    it('does not create a desktop spread across chat boundaries', () => {
+        const pages = [
+            { chatIndex: 1, chatPageIndex: 0 },
+            { chatIndex: 1, chatPageIndex: 1 },
+            { chatIndex: 1, chatPageIndex: 2 },
+            { chatIndex: 2, chatPageIndex: 0 },
+        ]
+
+        expect(getChatAwareSpreadPageIndex(pages, 2)).toBe(2)
+        expect(getChatAwareSpreadPageIndex(pages, 3)).toBe(3)
     })
 
     it('dispatches external ebook reader navigation events', () => {
