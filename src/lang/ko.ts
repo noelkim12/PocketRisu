@@ -998,6 +998,7 @@ export const languageKorean = {
     "noMessage": "무언가 입력하여 채팅을 시작하세요.",
     "combineTranslation": "결합 번역",
     "dynamicAssets": "다이나믹 에셋",
+    "chatRenderSwapDelayMs": "채팅 렌더 교체 지연(ms)",
     "dynamicAssetsEditDisplay": "디스플레이 수정에 다이나믹 에셋 사용",
     "longTermMemory": "장기기억",
     "grid": "그리드",

@@ -100,8 +100,8 @@ export const hypaV3ProgressStore = writable({
     subMsg: '',
 })
 export type GenerationIndicatorStatus = 'queued' | 'running' | 'done' | 'error'
-export type GenerationIndicatorKind = 'image' | 'video'
-export type GenerationIndicatorProvider = 'NovelAI' | 'ComfyUI'
+export type GenerationIndicatorKind = 'image' | 'video' | 'text'
+export type GenerationIndicatorProvider = 'NovelAI' | 'ComfyUI' | 'LLM' | 'AxLLM'
 export type GenerationIndicatorJob = {
     id: number
     status: GenerationIndicatorStatus

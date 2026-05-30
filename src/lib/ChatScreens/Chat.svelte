@@ -54,6 +54,8 @@
         totalPages?: number;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
+        renderIdentityKey?: string;
+        renderRevisionKey?: string;
     }
 
     let {
@@ -78,6 +80,8 @@
         totalPages = 1,
         isComment = false,
         disabled = false,
+        renderIdentityKey,
+        renderRevisionKey,
     }: Props = $props();
 
     let msgDisplay = $state('')
@@ -432,6 +436,8 @@
                         messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                     }
                     role={role ?? null}
+                    {renderIdentityKey}
+                    {renderRevisionKey}
                     bind:translated={translated}
                     bind:translating={translating}
                     bind:retranslate={retranslate} />

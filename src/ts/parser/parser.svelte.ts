@@ -823,31 +823,35 @@ export function parseInlayAssets(data:string){
 // Global resolve queue for inlay placeholders
 const resolveQueue: { el: HTMLElement, id: string, type: string }[] = []
 let isResolvingPlaceholders = false
+let inlayQueueDrainPromise: Promise<void> | null = null
 
 type ResolveInlayPlaceholderOptions = {
     eager?: boolean
 }
 
-function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserver) {
-    if (el.hasAttribute('data-inlay-resolving')) return
+function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserver): Promise<void> {
+    if (el.hasAttribute('data-inlay-resolving')) return inlayQueueDrainPromise ?? Promise.resolve()
 
     const id = el.getAttribute('data-inlay-id')
     const type = el.getAttribute('data-inlay-type')
-    if (!id) return
+    if (!id) return inlayQueueDrainPromise ?? Promise.resolve()
 
     el.setAttribute('data-inlay-resolving', 'true')
     observer?.unobserve(el)
     resolveQueue.push({ el, id, type: type || 'inlay' })
-    void processInlayQueue()
+    return processInlayQueue()
 }
 
-async function processInlayQueue() {
-    if (isResolvingPlaceholders || resolveQueue.length === 0) return
-    isResolvingPlaceholders = true
+function processInlayQueue(): Promise<void> {
+    if (inlayQueueDrainPromise) return inlayQueueDrainPromise
+    if (isResolvingPlaceholders || resolveQueue.length === 0) return Promise.resolve()
 
-    try {
-        while (resolveQueue.length > 0) {
-            const batch = resolveQueue.splice(0, 20)
+    inlayQueueDrainPromise = (async () => {
+        isResolvingPlaceholders = true
+
+        try {
+            while (resolveQueue.length > 0) {
+                const batch = resolveQueue.splice(0, 20)
 
             const unknownIds = batch
                 .filter(({ id }) => !blobUrlCache.has(id))
@@ -973,26 +977,30 @@ async function processInlayQueue() {
                     }
                 }
             }
+            }
+        } finally {
+            isResolvingPlaceholders = false
+            inlayQueueDrainPromise = null
         }
-    } finally {
-        isResolvingPlaceholders = false
-    }
+    })()
+
+    return inlayQueueDrainPromise
 }
 
-export function resolveInlayPlaceholders(root: HTMLElement, options: ResolveInlayPlaceholderOptions = {}) {
+export async function resolveInlayPlaceholders(root: HTMLElement, options: ResolveInlayPlaceholderOptions = {}): Promise<void> {
     if (!root) return
     const placeholders = Array.from(root.querySelectorAll('[data-inlay-id][data-inlay-type]:not([data-inlay-resolving])')) as HTMLElement[]
     if (placeholders.length === 0) return
 
     if (options.eager || !globalThis.IntersectionObserver) {
-        placeholders.forEach((el) => enqueueInlayPlaceholder(el))
+        await Promise.all(placeholders.map((el) => enqueueInlayPlaceholder(el)))
         return
     }
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
-                enqueueInlayPlaceholder(entry.target as HTMLElement, observer)
+                void enqueueInlayPlaceholder(entry.target as HTMLElement, observer)
             }
         })
     }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view

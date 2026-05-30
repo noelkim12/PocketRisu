@@ -54,10 +54,34 @@
             hash = (hash << 5) - hash + chr;
             hash |= 0; // Convert to 32bit integer
         }
-        if(hash == 0){
+        if(hash === 0){
             hash = 1; // Ensure hash is not zero
         }
         return hash;
+    }
+
+    /**
+     * Creates a stable cache identity for a message independent of its current content.
+     * @param message Chat message being rendered.
+     * @param index Message index used as a fallback identity when chatId is missing.
+     * @returns Deterministic identity key for same-message committed HTML fallback.
+     */
+    function getRenderIdentityKey(message: Message, index: number): string {
+        const chatRoomId = getCurrentChatRoomId() ?? 'no-room'
+        const messageId = message.chatId ?? index.toString()
+        const swipeId = message.swipeId ?? 0
+        return `${currentCharacter?.chaId ?? 'no-character'}|${chatRoomId}|${messageId}|${swipeId}`
+    }
+
+    /**
+     * Creates a content revision cache key for exact committed HTML reuse.
+     * @param identityKey Stable message identity cache key.
+     * @param message Chat message being rendered.
+     * @returns Deterministic revision key that changes when message content changes.
+     */
+    function getRenderRevisionKey(identityKey: string, message: Message): string {
+        const contentHash = hashCode(message.data ?? '')
+        return `${identityKey}|${contentHash}`
     }
 
     const updateChatBody = () => {
@@ -109,6 +133,7 @@
                 b.classList.add('chat-message-container');
                 const swipes = message.swipes;
                 const swipeId = message.swipeId ?? 0;
+                const renderIdentityKey = getRenderIdentityKey(message, i);
                 const inst = mount(Chat, {
                     target: b,
                     props: {
@@ -129,6 +154,8 @@
                         name: message.role === 'user' ? currentUsername : currentCharacter.name,
                         isComment: message.isComment ?? false,
                         disabled: message.disabled ?? false,
+                        renderIdentityKey,
+                        renderRevisionKey: getRenderRevisionKey(renderIdentityKey, message),
                         ...(i === lastRealCharIdx ? {
                             currentPage: (swipeId ?? 0) + 1,
                             totalPages: swipes?.length ?? 1,

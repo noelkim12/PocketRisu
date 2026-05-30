@@ -127,6 +127,8 @@ export const helpEn = {
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
         dynamicAssets:
             "If enabled, if the asset name is not found when processing data, it will try to find the closest asset name by using vector search and replace it with the closest asset name.",
+        chatRenderSwapDelayMs:
+            "When a chat message is re-rendered, PocketRisu can keep the currently visible HTML on screen while the new HTML is prepared in a hidden staging layer. This value controls how long to wait after the staged render is ready before swapping it into view. Use 0 for immediate swap, or 100-200ms to reduce flicker from heavy Display Modify scripts and inlay rendering.",
         dynamicAssetsEditDisplay: "If enabled, the dynamic assets will be applied to the Modify Display stage too. however, this can cause performance issues.",
         nickname: "Nickname would used be in {{char}} or <char> in chat instead of character's name if it is set.",
         useRegexLorebook: "If enabled, it will use regex for lorebook search, instead of string matching. it uses /regex/flags format.",

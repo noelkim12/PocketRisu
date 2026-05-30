@@ -94,6 +94,19 @@ describe('generation indicator provider queues', () => {
         await Promise.all([firstRun, secondRun])
     })
 
+    it('tracks text LLM jobs as generation indicator entries', async () => {
+        const pending = deferred<string>()
+
+        const run = withGenerationIndicator({ kind: 'text', provider: 'LLM', message: 'Calling LLM...' }, async () => await pending.promise)
+
+        await Promise.resolve()
+
+        expect(get(generationIndicatorStore).jobs).toMatchObject([{ kind: 'text', provider: 'LLM', status: 'running' }])
+
+        pending.resolve('ok')
+        await run
+    })
+
     it('removes completed jobs after their display delay', async () => {
         vi.useFakeTimers()
 

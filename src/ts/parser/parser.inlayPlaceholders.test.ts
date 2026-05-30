@@ -94,6 +94,21 @@ describe('resolveInlayPlaceholders', () => {
         expect(placeholder?.hasAttribute('data-inlay-resolving')).toBe(false)
     })
 
+    it('keeps default staging-like roots lazy unless eager resolution is requested', () => {
+        const { constructorSpy, observe } = mockIntersectionObserver()
+
+        const root = document.createElement('div')
+        root.setAttribute('aria-hidden', 'true')
+        root.innerHTML = '<span data-inlay-id="staged-id" data-inlay-type="inlay"></span>'
+        const placeholder = root.querySelector<HTMLElement>('[data-inlay-id]')
+
+        resolveInlayPlaceholders(root)
+
+        expect(constructorSpy).toHaveBeenCalledTimes(1)
+        expect(observe).toHaveBeenCalledWith(placeholder)
+        expect(placeholder?.hasAttribute('data-inlay-resolving')).toBe(false)
+    })
+
     it('observes valid placeholder elements even if placeholder styling classes are missing', () => {
         const { constructorSpy, observe } = mockIntersectionObserver()
 
@@ -144,21 +159,22 @@ describe('resolveInlayPlaceholders', () => {
         expect(placeholder.hasAttribute('data-inlay-resolving')).toBe(false)
     })
 
-    it('eagerly queues placeholders without IntersectionObserver when requested', () => {
+    it('eagerly queues placeholders without IntersectionObserver when requested', async () => {
         const { constructorSpy, observe } = mockIntersectionObserver()
 
         const root = document.createElement('div')
         root.innerHTML = '<div class="risu-inlay-placeholder" data-inlay-id="eager-id" data-inlay-type="inlay"></div>'
         const placeholder = root.querySelector<HTMLElement>('.risu-inlay-placeholder')!
 
-        resolveInlayPlaceholders(root, { eager: true })
+        await resolveInlayPlaceholders(root, { eager: true })
 
         expect(constructorSpy).not.toHaveBeenCalled()
         expect(observe).not.toHaveBeenCalled()
-        expect(placeholder.getAttribute('data-inlay-resolving')).toBe('true')
+        expect(root.querySelector('.risu-inlay-placeholder')).toBeNull()
+        expect(root.querySelector('img')?.getAttribute('data-inlay-id')).toBe('eager-id')
     })
 
-    it('falls back to eager queueing when IntersectionObserver is unavailable', () => {
+    it('falls back to eager queueing when IntersectionObserver is unavailable', async () => {
         Object.defineProperty(globalThis, 'IntersectionObserver', {
             configurable: true,
             value: undefined,
@@ -166,9 +182,9 @@ describe('resolveInlayPlaceholders', () => {
 
         const root = document.createElement('div')
         root.innerHTML = '<div class="risu-inlay-placeholder" data-inlay-id="fallback-id" data-inlay-type="inlay"></div>'
-        const placeholder = root.querySelector<HTMLElement>('.risu-inlay-placeholder')!
 
-        expect(() => resolveInlayPlaceholders(root)).not.toThrow()
-        expect(placeholder.getAttribute('data-inlay-resolving')).toBe('true')
+        await expect(resolveInlayPlaceholders(root)).resolves.toBeUndefined()
+        expect(root.querySelector('.risu-inlay-placeholder')).toBeNull()
+        expect(root.querySelector('img')?.getAttribute('data-inlay-id')).toBe('fallback-id')
     })
 })

@@ -1,11 +1,17 @@
 <script lang="ts">
     import { generationIndicatorStore } from 'src/ts/stores.svelte'
 
+    const formatKind = (kind: string) => {
+        if (kind === 'video') return 'Video'
+        if (kind === 'text') return 'Text'
+        return 'Image'
+    }
+
     const countJobs = (status: 'queued' | 'running' | 'done' | 'error') => $generationIndicatorStore.jobs.filter((job) => job.status === status).length
-    const countProvider = (provider: 'NovelAI' | 'ComfyUI', status: 'queued' | 'running') => $generationIndicatorStore.jobs.filter((job) => job.provider === provider && job.status === status).length
+    const countProvider = (provider: string, status: 'queued' | 'running') => $generationIndicatorStore.jobs.filter((job) => job.provider === provider && job.status === status).length
     const summaryKind = () => {
         const kinds = new Set($generationIndicatorStore.jobs.map((job) => job.kind))
-        if (kinds.size === 1) return kinds.has('video') ? 'Video' : 'Image'
+        if (kinds.size === 1) return formatKind(kinds.values().next().value)
         return 'Generation'
     }
     const title = () => {
@@ -16,13 +22,14 @@
         return `${summaryKind()} generating...(${completed}/${total})`
     }
     const detail = () => {
-        const novelQueued = countProvider('NovelAI', 'queued')
-        const novelRunning = countProvider('NovelAI', 'running')
-        const comfyQueued = countProvider('ComfyUI', 'queued')
-        const comfyRunning = countProvider('ComfyUI', 'running')
         const parts = []
-        if (novelQueued || novelRunning) parts.push(`NovelAI ${novelRunning} running, ${novelQueued} queued`)
-        if (comfyQueued || comfyRunning) parts.push(`ComfyUI ${comfyRunning} polling, ${comfyQueued} queued`)
+        const providers = [...new Set($generationIndicatorStore.jobs.map((job) => job.provider))]
+        for (const provider of providers) {
+            const queued = countProvider(provider, 'queued')
+            const running = countProvider(provider, 'running')
+            const runningLabel = provider === 'ComfyUI' ? 'polling' : 'running'
+            if (queued || running) parts.push(`${provider} ${running} ${runningLabel}, ${queued} queued`)
+        }
         const failed = countJobs('error')
         if (failed) parts.push(`${failed} failed`)
         return parts.join(' · ')

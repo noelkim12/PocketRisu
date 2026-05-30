@@ -10,6 +10,59 @@
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
     import { getFileSrc } from "src/ts/globalApi.svelte";
 
+    const COMMITTED_HTML_CACHE_LIMIT = 500
+    const committedHtmlRevisionCache = new Map<string, string>()
+    const committedHtmlIdentityCache = new Map<string, string>()
+
+    /**
+     * Reads committed chat HTML from revision cache first, then message identity fallback cache.
+     * @param revisionKey Content-specific cache key, if available.
+     * @param identityKey Stable same-message identity key, if available.
+     * @returns Cached committed HTML for the exact revision or same identity, or an empty string.
+     */
+    function getCachedCommittedHtml(revisionKey?: string, identityKey?: string) {
+        if (revisionKey) {
+            const cachedRevision = committedHtmlRevisionCache.get(revisionKey)
+            if (cachedRevision !== undefined) {
+                return cachedRevision
+            }
+        }
+        return identityKey ? committedHtmlIdentityCache.get(identityKey) ?? '' : ''
+    }
+
+    /**
+     * Stores committed chat HTML in a bounded cache and evicts the oldest entries after the cap.
+     * @param cache Cache map to update.
+     * @param key Cache key to write.
+     * @param html Committed HTML that was successfully swapped into the visible layer.
+     */
+    function setBoundedCommittedHtml(cache: Map<string, string>, key: string, html: string) {
+        if (cache.has(key)) {
+            cache.delete(key)
+        }
+        cache.set(key, html)
+        while (cache.size > COMMITTED_HTML_CACHE_LIMIT) {
+            const oldestKey = cache.keys().next().value
+            if (!oldestKey) break
+            cache.delete(oldestKey)
+        }
+    }
+
+    /**
+     * Stores committed chat HTML for exact revision reuse and same-message fallback reuse.
+     * @param revisionKey Content-specific cache key, if available.
+     * @param identityKey Stable same-message identity key, if available.
+     * @param html Committed HTML that was successfully swapped into the visible layer.
+     */
+    function setCachedCommittedHtml(revisionKey: string | undefined, identityKey: string | undefined, html: string) {
+        if (revisionKey) {
+            setBoundedCommittedHtml(committedHtmlRevisionCache, revisionKey, html)
+        }
+        if (identityKey) {
+            setBoundedCommittedHtml(committedHtmlIdentityCache, identityKey, html)
+        }
+    }
+
     interface Props {
         character?: simpleCharacterArgument|string|null
         firstMessage?: boolean
@@ -22,6 +75,8 @@
         retranslate: boolean
         bodyRoot?: HTMLElement|null
         modelShortName: string
+        renderIdentityKey?: string
+        renderRevisionKey?: string
     }
 
     let {
@@ -35,12 +90,25 @@
         retranslate = $bindable(false),
         bodyRoot,
         modelShortName = '',
+        renderIdentityKey,
+        renderRevisionKey,
     }: Props =  $props()
 
     // svelte-ignore non_reactive_update
-    let lastParsed = ''
     let lastCharArg:string|simpleCharacterArgument = null
     let lastChatId = -10
+
+    const getInitialRenderIdentityKey = () => renderIdentityKey
+    const getInitialRenderRevisionKey = () => renderRevisionKey
+    let activeRenderIdentityKey = getInitialRenderIdentityKey()
+    let activeRenderRevisionKey = getInitialRenderRevisionKey()
+    let committedHtml = $state(getCachedCommittedHtml(getInitialRenderRevisionKey(), getInitialRenderIdentityKey()))
+    let stagedHtml = $state('')
+    let stagingActive = $state(false)
+    let visibleRoot: HTMLElement | null = $state(null)
+    let stagingRoot: HTMLElement | null = $state(null)
+    let renderGeneration = 0
+    let stageTimer: ReturnType<typeof setTimeout> | null = null
 
     function getCbsCondition(){
         try{
@@ -56,6 +124,41 @@
                 chatRole: null,
             }
         }
+    }
+
+    /**
+     * Returns the configured chat render swap delay in milliseconds.
+     * @returns A clamped integer delay between 0 and 2000 milliseconds.
+     */
+    function getChatRenderSwapDelayMs() {
+        const rawDelay = (DBState.db as { chatRenderSwapDelayMs?: number }).chatRenderSwapDelayMs ?? 120
+        if (typeof rawDelay !== 'number' || Number.isNaN(rawDelay) || rawDelay < 0) {
+            return 120
+        }
+        return Math.min(2000, Math.floor(rawDelay))
+    }
+
+    /**
+     * Waits for the requested number of milliseconds.
+     * @param ms Delay duration in milliseconds.
+     * @returns A promise that resolves after the delay elapses.
+     */
+    function delayMs(ms: number) {
+        return new Promise<void>((resolve) => {
+            stageTimer = setTimeout(() => {
+                stageTimer = null
+                resolve()
+            }, ms)
+        })
+    }
+
+    /**
+     * Converts parsed markdown HTML into sanitized chat body HTML with metadata.
+     * @param markdown Parsed markdown HTML returned by ParseMarkdown.
+     * @returns Sanitized HTML ready to insert with {@html}.
+     */
+    function renderChatHtml(markdown: string) {
+        return addMetadataToElement(trimMarkdown(markdown), modelShortName)
     }
 
     const markParsing = async (data: string, charArg: string | simpleCharacterArgument, chatID: number, tries?:number) => {
@@ -102,11 +205,11 @@
                 }
             }
             if(retranslate || translated){
-                if (DBState.db.showTranslationLoading) {
-                    lastParsed = `<div style="display:flex;justify-content:center;align-items:center;height:48px;"><div style="animation: spin 1s linear infinite; border-radius: 50%; height: 32px; width: 32px; border: 2px solid #3b82f6; border-top: 2px solid transparent;"></div></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style>`
-                }
+                // Keep committedHtml visible during translation. The staged render
+                // will be swapped in only after parsing finishes and the configured
+                // render-swap delay has elapsed.
 
-                let transResult
+                let transResult: string
                 
                 if(DBState.db.translatorType === 'llm' && DBState.db.translateBeforeHTMLFormatting){
                     await sleep(100)
@@ -159,16 +262,67 @@
             return await markParsing(data, charArg, chatID, (tries ?? 0) + 1)
         }
         finally{
-            //since trimMarkdown is fast, we don't need to cache it
-            lastParsed = lastParsedQueue
+            // The caller commits parsed HTML through the staged render pipeline.
+            void lastParsedQueue
         }
     }
 
-    const checkImg = () => {
-        if(!DBState.db.newImageHandlingBeta || !bodyRoot){
+    /**
+     * Stages parsed chat HTML in a hidden layer, then commits it if no newer render superseded it.
+     * @param parsedMarkdown Parsed markdown HTML returned by markParsing.
+     * @param generation Render generation that must still be current to commit.
+     */
+    async function stageAndCommit(parsedMarkdown: string, generation: number) {
+        stagedHtml = renderChatHtml(parsedMarkdown)
+        stagingActive = true
+        await tick()
+
+        if (generation !== renderGeneration) {
             return
         }
-        const imgs = bodyRoot.querySelectorAll('img:not([src^="data:"]):not([src^="http:"]):not([src^="https:"]):not([src^="blob:"]):not([src^="file:"]):not([src^="tauri:"]):not([src^="/"]):not([noimage])') as NodeListOf<HTMLImageElement>
+
+        const hasPriorCommittedHtml = committedHtml.trim().length > 0
+
+        checkImg(stagingRoot)
+
+        if (hasPriorCommittedHtml && stagingRoot) {
+            await resolveInlayPlaceholders(stagingRoot, { eager: true })
+        }
+
+        if (generation !== renderGeneration) {
+            return
+        }
+
+        const swapDelay = hasPriorCommittedHtml ? getChatRenderSwapDelayMs() : 0
+        if (swapDelay > 0) {
+            await delayMs(swapDelay)
+        }
+
+        if (generation !== renderGeneration) {
+            return
+        }
+
+        committedHtml = stagedHtml
+        setCachedCommittedHtml(renderRevisionKey, renderIdentityKey, committedHtml)
+        stagedHtml = ''
+        stagingActive = false
+        await tick()
+
+        if (generation !== renderGeneration) {
+            return
+        }
+
+        checkImg(visibleRoot)
+        if (visibleRoot) {
+            void resolveInlayPlaceholders(visibleRoot)
+        }
+    }
+
+    const checkImg = (root: HTMLElement | null) => {
+        if(!DBState.db.newImageHandlingBeta || !root){
+            return
+        }
+        const imgs = root.querySelectorAll('img:not([src^="data:"]):not([src^="http:"]):not([src^="https:"]):not([src^="blob:"]):not([src^="file:"]):not([src^="tauri:"]):not([src^="/"]):not([noimage])') as NodeListOf<HTMLImageElement>
         
         if (imgs.length > 0) {
             const currentCharacter = getCurrentCharacter()
@@ -244,18 +398,60 @@
     let markParsingResult = $derived.by(() => markParsing(msgDisplay, character, idx))
 
     $effect(() => {
-        markParsingResult
-        checkImg()
-        markParsingResult.then(async () => {
-            checkImg()
-            await tick() // Wait for Svelte to re-render the {:then} block into DOM
-            if (bodyRoot) resolveInlayPlaceholders(bodyRoot)
+        const nextIdentityKey = renderIdentityKey
+        const nextRevisionKey = renderRevisionKey
+        if (nextIdentityKey === activeRenderIdentityKey && nextRevisionKey === activeRenderRevisionKey) {
+            return
+        }
+        renderGeneration++
+        if (stageTimer) {
+            clearTimeout(stageTimer)
+            stageTimer = null
+        }
+        activeRenderIdentityKey = nextIdentityKey
+        activeRenderRevisionKey = nextRevisionKey
+        committedHtml = getCachedCommittedHtml(nextRevisionKey, nextIdentityKey)
+        stagedHtml = ''
+        stagingActive = false
+    })
+
+    $effect(() => {
+        const generation = ++renderGeneration
+        const currentResult = markParsingResult
+
+        if (stageTimer) {
+            clearTimeout(stageTimer)
+            stageTimer = null
+        }
+
+        currentResult.then(async (parsed) => {
+            if (generation !== renderGeneration) {
+                return
+            }
+            await stageAndCommit(parsed, generation)
+        }).catch((error) => {
+            if (generation !== renderGeneration) {
+                return
+            }
+            console.error(error)
+            const fallback = typeof msgDisplay === 'string' ? msgDisplay : ''
+            void stageAndCommit(fallback, generation)
         })
     })
 </script>
 
-{#await markParsingResult}
-    {@html addMetadataToElement(trimMarkdown(lastParsed), modelShortName)}
-{:then md}
-    {@html addMetadataToElement(trimMarkdown(md), modelShortName)}
-{/await}
+<span bind:this={visibleRoot} data-risu-chatbody-layer="visible">
+    {@html committedHtml}
+</span>
+
+{#if stagingActive}
+    <span
+        bind:this={stagingRoot}
+        data-risu-chatbody-layer="staging"
+        aria-hidden="true"
+        inert
+        style="position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;contain:layout style paint;"
+    >
+        {@html stagedHtml}
+    </span>
+{/if}

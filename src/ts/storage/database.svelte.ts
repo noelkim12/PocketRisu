@@ -742,6 +742,15 @@ export function setDatabase(data:Database){
     data.enableEbookReader ??= false
     data.echoMessage ??= "Echo Message"
     data.echoDelay ??= 0
+    data.chatRenderSwapDelayMs ??= 120
+    if (
+        typeof data.chatRenderSwapDelayMs !== 'number' ||
+        Number.isNaN(data.chatRenderSwapDelayMs) ||
+        data.chatRenderSwapDelayMs < 0
+    ) {
+        data.chatRenderSwapDelayMs = 120
+    }
+    data.chatRenderSwapDelayMs = Math.min(2000, Math.floor(data.chatRenderSwapDelayMs))
     data.createFolderOnBranch ??= true
     data.hamburgerButtonBottom ??= false
     data.hideLeftBarCollapseButton ??= false
@@ -1402,6 +1411,7 @@ export interface Database{
     pluginDevelopMode?: boolean
     echoMessage?:string
     echoDelay?:number
+    chatRenderSwapDelayMs?:number
     createFolderOnBranch?:boolean
     hamburgerButtonBottom?:boolean
     hideLeftBarCollapseButton?:boolean

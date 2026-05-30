@@ -178,6 +178,11 @@ export const advancedSettingsItems: SettingItem[] = [
 
     // Dynamic Assets & Others
     { id: 'adv.dynAssets', type: 'check', labelKey: 'dynamicAssets', bindKey: 'dynamicAssets', helpKey: 'dynamicAssets', classes: 'mt-4' },
+    {
+        id: 'adv.chatRenderSwapDelay', type: 'number', labelKey: 'chatRenderSwapDelayMs', bindKey: 'chatRenderSwapDelayMs',
+        helpKey: 'chatRenderSwapDelayMs', classes: 'mt-4',
+        options: { min: 0, max: 2000 }
+    },
     { id: 'adv.realmOpen', type: 'check', labelKey: 'realmDirectOpen', bindKey: 'realmDirectOpen', helpKey: 'realmDirectOpen', classes: 'mt-4' },
     { id: 'adv.cssErr', type: 'check', labelKey: 'returnCSSError', bindKey: 'returnCSSError', helpKey: 'returnCSSError', classes: 'mt-4' },
     { id: 'adv.antiOverload', type: 'check', labelKey: 'antiServerOverload', bindKey: 'antiServerOverloads', helpKey: 'antiServerOverload', classes: 'mt-4' },

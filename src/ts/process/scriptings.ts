@@ -2,7 +2,7 @@ import { asBuffer } from 'src/ts/util';
 import { getChatVar, getGlobalChatVar, setChatVar } from "../parser/chatVar.svelte";
 import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/parser.svelte";
 import { LuaEngine, LuaFactory } from "wasmoon";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type triggerscript } from "../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type triggerscript, type Message } from "../storage/database.svelte";
 import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm } from "../alert";
@@ -18,12 +18,40 @@ import { tokenize } from "../tokenizer";
 import { fetchNative, readImage } from "../globalApi.svelte";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
+import { withGenerationIndicator } from '../generationIndicator';
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
 let ScriptingEditDisplayIds = new Set<string>()
 let ScriptingLowLevelIds = new Set<string>()
 let lastRequestResetTime = 0
 let lastRequestsCount = 0
+
+/**
+ * Input shape for messages coming from Lua/JSON round-trips.
+ * Allows any extra fields so parsed metadata (generationInfo, swipes, etc.) flows through.
+ */
+type ScriptedMessageInput = Partial<Message> & Record<string, unknown>
+
+/**
+ * Normalize a parsed scripted message into a full Message object.
+ * Preserves existing metadata when present, generates missing stable ids/timestamps,
+ * and sanitizes role/data to valid defaults.
+ * @param v - The parsed message object from Lua/JSON.
+ * @returns A fully populated Message safe for the chat array.
+ */
+function normalizeScriptedMessage(v: ScriptedMessageInput): Message {
+    const role: 'user' | 'char' = v.role === 'user' ? 'user' : 'char'
+    const data = typeof v.data === 'string' ? v.data : ''
+    const chatId = typeof v.chatId === 'string' && v.chatId ? v.chatId : v4()
+    const time = typeof v.time === 'number' && !isNaN(v.time) ? v.time : Date.now()
+    return {
+        ...v,
+        role,
+        data,
+        chatId,
+        time,
+    }
+}
 
 interface BasicScriptingEngineState {
     code?: string;
@@ -159,7 +187,8 @@ export async function runScripted(code:string, arg:{
                 const data = {
                     role: chat.role,
                     data: chat.data,
-                    time: chat.time ?? 0
+                    time: chat.time ?? 0,
+                    chatId: chat.chatId ?? ''
                 }
                 return JSON.stringify(data)
             })
@@ -199,14 +228,24 @@ export async function runScripted(code:string, arg:{
                     return
                 }
                 let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.push({role: roleData, data: value ?? ''})
+                ScriptingEngineState.chat.message.push({
+                    role: roleData,
+                    data: value ?? '',
+                    chatId: v4(),
+                    time: Date.now()
+                })
             })
             declareAPI('insertChat', (id:string, index:number, role:string, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
                 let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.splice(index, 0, {role: roleData, data: value ?? ''})
+                ScriptingEngineState.chat.message.splice(index, 0, {
+                    role: roleData,
+                    data: value ?? '',
+                    chatId: v4(),
+                    time: Date.now()
+                })
             })
 
             declareAPI('getTokens', async (id:string, value:string) => {
@@ -225,7 +264,8 @@ export async function runScripted(code:string, arg:{
                     return {
                         role: v.role,
                         data: v.data,
-                        time: v.time ?? 0
+                        time: v.time ?? 0,
+                        chatId: v.chatId ?? ''
                     }
                 }))
                 return data
@@ -250,14 +290,13 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const realValue = JSON.parse(value)
+                const parsed = JSON.parse(value) as unknown
+                if (!Array.isArray(parsed)) {
+                    return
+                }
+                const realValue = parsed as ScriptedMessageInput[]
 
-                ScriptingEngineState.chat.message = realValue.map((v) => {
-                    return {
-                        role: v.role,
-                        data: v.data
-                    }
-                })
+                ScriptingEngineState.chat.message = realValue.map((v) => normalizeScriptedMessage(v))
             })
 
             declareAPI('logMain', (value:string) => {
@@ -538,45 +577,61 @@ export async function runScripted(code:string, arg:{
                 }
 
                 const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
-                const result = await requestChatData({
-                    formated: promptbody,
-                    bias: {},
-                    useStreaming: options.streaming === true,
-                    forceStreaming: options.streaming === true,
-                    noMultiGen: true,
-                }, 'model')
+                return await withGenerationIndicator({
+                    kind: 'text',
+                    provider: 'LLM',
+                    message: 'Calling LLM...',
+                    detail: options.streaming === true ? 'Waiting for streaming response' : 'Waiting for model response',
+                    doneMessage: 'LLM response ready',
+                    failMessage: 'LLM request failed',
+                    isSuccess: (value) => {
+                        try {
+                            return JSON.parse(value)?.success !== false
+                        } catch {
+                            return false
+                        }
+                    },
+                }, async () => {
+                    const result = await requestChatData({
+                        formated: promptbody,
+                        bias: {},
+                        useStreaming: options.streaming === true,
+                        forceStreaming: options.streaming === true,
+                        noMultiGen: true,
+                    }, 'model')
 
-                if(result.type === 'fail'){
-                    return JSON.stringify({
-                        success: false,
-                        result: 'Error: ' + result.result
-                    })
-                }
-
-                if(result.type === 'streaming'){
-                    try {
-                        return JSON.stringify({
-                            success: true,
-                            result: await collectLuaStreamText(result.result)
-                        })
-                    } catch (error) {
+                    if(result.type === 'fail'){
                         return JSON.stringify({
                             success: false,
-                            result: 'Error: ' + error
+                            result: 'Error: ' + result.result
                         })
                     }
-                }
 
-                if(result.type === 'multiline'){
+                    if(result.type === 'streaming'){
+                        try {
+                            return JSON.stringify({
+                                success: true,
+                                result: await collectLuaStreamText(result.result)
+                            })
+                        } catch (error) {
+                            return JSON.stringify({
+                                success: false,
+                                result: 'Error: ' + error
+                            })
+                        }
+                    }
+
+                    if(result.type === 'multiline'){
+                        return JSON.stringify({
+                            success: false,
+                            result: result.result
+                        })
+                    }
+
                     return JSON.stringify({
-                        success: false,
+                        success: true,
                         result: result.result
                     })
-                }
-
-                return JSON.stringify({
-                    success: true,
-                    result: result.result
                 })
             })
 
@@ -584,34 +639,44 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingLowLevelIds.has(id)){
                     return
                 }
-                const result = await requestChatData({
-                    formated: [{
-                        role: 'user',
-                        content: prompt
-                    }],
-                    bias: {},
-                    useStreaming: false,
-                    noMultiGen: true,
-                }, 'model')
+                return await withGenerationIndicator({
+                    kind: 'text',
+                    provider: 'LLM',
+                    message: 'Calling LLM...',
+                    detail: 'Waiting for model response',
+                    doneMessage: 'LLM response ready',
+                    failMessage: 'LLM request failed',
+                    isSuccess: (value) => value.success !== false,
+                }, async () => {
+                    const result = await requestChatData({
+                        formated: [{
+                            role: 'user',
+                            content: prompt
+                        }],
+                        bias: {},
+                        useStreaming: false,
+                        noMultiGen: true,
+                    }, 'model')
 
-                if(result.type === 'fail'){
-                    return {
-                        success: false,
-                        result: 'Error: ' + result.result
+                    if(result.type === 'fail'){
+                        return {
+                            success: false,
+                            result: 'Error: ' + result.result
+                        }
                     }
-                }
 
-                if(result.type === 'streaming' || result.type === 'multiline'){
+                    if(result.type === 'streaming' || result.type === 'multiline'){
+                        return {
+                            success: false,
+                            result: result.result
+                        }
+                    }
+
                     return {
-                        success: false,
+                        success: true,
                         result: result.result
                     }
-                }
-
-                return {
-                    success: true,
-                    result: result.result
-                }
+                })
             })
             
             declareAPI('getName', (id:string) => {
@@ -898,45 +963,61 @@ export async function runScripted(code:string, arg:{
                 }
 
                 const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
-                const result = await requestChatData({
-                    formated: promptbody,
-                    bias: {},
-                    useStreaming: options.streaming === true,
-                    forceStreaming: options.streaming === true,
-                    noMultiGen: true,
-                }, 'otherAx')
+                return await withGenerationIndicator({
+                    kind: 'text',
+                    provider: 'AxLLM',
+                    message: 'Calling AxLLM...',
+                    detail: options.streaming === true ? 'Waiting for streaming response' : 'Waiting for Ax model response',
+                    doneMessage: 'AxLLM response ready',
+                    failMessage: 'AxLLM request failed',
+                    isSuccess: (value) => {
+                        try {
+                            return JSON.parse(value)?.success !== false
+                        } catch {
+                            return false
+                        }
+                    },
+                }, async () => {
+                    const result = await requestChatData({
+                        formated: promptbody,
+                        bias: {},
+                        useStreaming: options.streaming === true,
+                        forceStreaming: options.streaming === true,
+                        noMultiGen: true,
+                    }, 'otherAx')
 
-                if(result.type === 'fail'){
-                    return JSON.stringify({
-                        success: false,
-                        result: 'Error: ' + result.result
-                    })
-                }
-
-                if(result.type === 'streaming'){
-                    try {
-                        return JSON.stringify({
-                            success: true,
-                            result: await collectLuaStreamText(result.result)
-                        })
-                    } catch (error) {
+                    if(result.type === 'fail'){
                         return JSON.stringify({
                             success: false,
-                            result: 'Error: ' + error
+                            result: 'Error: ' + result.result
                         })
                     }
-                }
 
-                if(result.type === 'multiline'){
+                    if(result.type === 'streaming'){
+                        try {
+                            return JSON.stringify({
+                                success: true,
+                                result: await collectLuaStreamText(result.result)
+                            })
+                        } catch (error) {
+                            return JSON.stringify({
+                                success: false,
+                                result: 'Error: ' + error
+                            })
+                        }
+                    }
+
+                    if(result.type === 'multiline'){
+                        return JSON.stringify({
+                            success: false,
+                            result: result.result
+                        })
+                    }
+
                     return JSON.stringify({
-                        success: false,
+                        success: true,
                         result: result.result
                     })
-                }
-
-                return JSON.stringify({
-                    success: true,
-                    result: result.result
                 })
             })
 
@@ -1405,7 +1486,7 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
 }
 
 export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{
-    let runResult
+    let runResult: Awaited<ReturnType<typeof runScripted>> | undefined
     try {
         const triggers = char.triggerscript.map<triggerscript>((v) => ({
             ...v,

@@ -1003,6 +1003,7 @@ export const languageEnglish = {
     noMessage: "Type something to start the chat.",
     combineTranslation: "Combine Translation",
     dynamicAssets: "Dynamic Assets",
+    chatRenderSwapDelayMs: "Chat Render Swap Delay (ms)",
     dynamicAssetsEditDisplay: "Use Dynamic Assets in Display",
     longTermMemory: "Long Term Memory",
     grid: "Grid",
