@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { readFileSync } from 'fs';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
+const devServerTarget = process.env.POCKETRISU_DEV_SERVER_TARGET ?? 'http://localhost:6001';
 
 // https://vitejs.dev/config/
 export default defineConfig(({command, mode}) => {
@@ -38,6 +39,29 @@ export default defineConfig(({command, mode}) => {
       host: '0.0.0.0', // listen on all addresses
       port: 5174,
       strictPort: true,
+      proxy: {
+        '/api': {
+          target: devServerTarget,
+          changeOrigin: true,
+        },
+        '/proxy': {
+          target: devServerTarget,
+          changeOrigin: true,
+        },
+        '/proxy2': {
+          target: devServerTarget,
+          changeOrigin: true,
+        },
+        '/hub-proxy': {
+          target: devServerTarget,
+          changeOrigin: true,
+        },
+        '/proxy-stream-jobs': {
+          target: devServerTarget,
+          changeOrigin: true,
+          ws: true,
+        },
+      },
       // hmr: false,
     },
     // to make use of `TAURI_ENV_DEBUG` and other env variables

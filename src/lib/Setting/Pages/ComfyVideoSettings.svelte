@@ -4,126 +4,160 @@
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
+    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
+    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import Accordion from "src/lib/UI/Accordion.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { notifyError, notifySuccess } from "src/ts/alert";
-
-    type WorkflowInputs = Record<string, unknown>;
-
-    interface WorkflowNode {
-        inputs?: WorkflowInputs;
-        class_type?: string;
-        _meta?: {
-            title?: string;
-        };
-    }
-
-    interface WorkflowNodeSummary {
-        id: string;
-        title: string;
-        classType: string;
-        inputKeys: string[];
-        inputFieldCandidates: string[];
-        isInputCandidate: boolean;
-        isOutputCandidate: boolean;
-    }
-
-    type ParsedWorkflow =
-        | { ok: true; nodes: WorkflowNodeSummary[]; message: string }
-        | { ok: false; nodes: WorkflowNodeSummary[]; message: string };
+    import type { ComfyVideoWorkflowPreset } from "src/ts/storage/database.svelte";
+    import ComfyWorkflowNodes from "src/lib/Setting/Components/ComfyWorkflowNodes.svelte";
+    import { isRecord, isWorkflowNode, parseWorkflowJson, type WorkflowNode, type WorkflowNodeSummary } from "src/ts/comfy/workflowPreview";
 
     const workflowParseResult = $derived(parseWorkflowJson(DBState.db.comfyConfig.video.workflow));
+    const selectedWorkflowPreset = $derived(getSelectedWorkflowPreset());
 
-    function isRecord(value: unknown): value is Record<string, unknown> {
-        return typeof value === "object" && value !== null && !Array.isArray(value);
+    /**
+     * Creates a stable browser-side preset ID for newly added ComfyUI workflows.
+     * @returns Unique preset identifier for the current settings list.
+     */
+    function createPresetId() {
+        return `workflow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
-    function isWorkflowNode(value: unknown): value is WorkflowNode {
-        return isRecord(value);
+    /**
+     * Finds the currently selected workflow preset from persisted video settings.
+     * @returns Matching preset, or undefined when using legacy single-workflow fields.
+     */
+    function getSelectedWorkflowPreset() {
+        return DBState.db.comfyConfig.video.workflowPresets.find((preset) => preset.id === DBState.db.comfyConfig.video.selectedWorkflowPresetId);
     }
 
-    function parseWorkflowJson(text: string): ParsedWorkflow {
-        const trimmed = text.trim();
-        if (!trimmed) {
-            return { ok: false, nodes: [], message: "Paste a ComfyUI API workflow JSON to preview selectable nodes." };
+    /**
+     * Copies a preset into the editable workflow fields used by preview and validation.
+     * @param preset Preset whose workflow and node settings should become active.
+     * @returns Nothing.
+     */
+    function applyWorkflowPreset(preset: ComfyVideoWorkflowPreset) {
+        DBState.db.comfyConfig.video.workflow = preset.workflow;
+        DBState.db.comfyConfig.video.inputImageNodeId = preset.inputImageNodeId;
+        DBState.db.comfyConfig.video.inputImageField = preset.inputImageField;
+        DBState.db.comfyConfig.video.outputNodeId = preset.outputNodeId;
+        DBState.db.comfyConfig.video.positivePrompt = preset.positivePrompt;
+        DBState.db.comfyConfig.video.negativePrompt = preset.negativePrompt;
+    }
+
+    /**
+     * Selects a preset and mirrors it into the existing video workflow fields.
+     * @returns Nothing.
+     */
+    function handlePresetChange() {
+        const preset = getSelectedWorkflowPreset();
+        if (preset) {
+            applyWorkflowPreset(preset);
         }
+    }
 
+    /**
+     * Saves the current editable workflow fields back into the selected preset.
+     * @returns Nothing.
+     */
+    function syncSelectedPresetFromCurrent() {
+        const preset = getSelectedWorkflowPreset();
+        if (!preset) return;
+
+        preset.workflow = DBState.db.comfyConfig.video.workflow;
+        preset.inputImageNodeId = DBState.db.comfyConfig.video.inputImageNodeId;
+        preset.inputImageField = DBState.db.comfyConfig.video.inputImageField;
+        preset.outputNodeId = DBState.db.comfyConfig.video.outputNodeId;
+        preset.positivePrompt = DBState.db.comfyConfig.video.positivePrompt;
+        preset.negativePrompt = DBState.db.comfyConfig.video.negativePrompt;
+    }
+
+    /**
+     * Replaces one node inside the current ComfyUI video workflow JSON.
+     * @param nodeId Workflow node ID to update.
+     * @param node Edited ComfyUI API node object.
+     * @returns Nothing.
+     */
+    function updateWorkflowNode(nodeId: string, node: WorkflowNode) {
         try {
-            const parsed: unknown = JSON.parse(trimmed);
-            if (!isRecord(parsed)) {
-                return { ok: false, nodes: [], message: "Workflow JSON must be an object keyed by node ID." };
+            const workflow: unknown = JSON.parse(DBState.db.comfyConfig.video.workflow);
+            if (!isRecord(workflow)) {
+                throw new Error("Workflow JSON must be an object keyed by node ID");
             }
 
-            const nodes = Object.entries(parsed)
-                .filter(([, node]) => isWorkflowNode(node))
-                .map(([id, node]) => summarizeWorkflowNode(id, node))
-                .sort((left, right) => sortNodeIds(left.id, right.id));
-
-            if (nodes.length === 0) {
-                return { ok: false, nodes: [], message: "No workflow nodes were found in the JSON object." };
-            }
-
-            return { ok: true, nodes, message: "" };
+            workflow[nodeId] = node;
+            DBState.db.comfyConfig.video.workflow = JSON.stringify(workflow, null, 2);
+            syncSelectedPresetFromCurrent();
+            notifySuccess(`Updated ComfyUI node ${nodeId}`);
         } catch (error) {
-            return { ok: false, nodes: [], message: `Workflow JSON could not be parsed: ${error instanceof Error ? error.message : String(error)}` };
+            notifyError(`Could not update ComfyUI node ${nodeId}: ${error}`);
         }
     }
 
-    function summarizeWorkflowNode(id: string, node: WorkflowNode): WorkflowNodeSummary {
-        const inputs = isRecord(node.inputs) ? node.inputs : {};
-        const inputKeys = Object.keys(inputs);
-        const classType = typeof node.class_type === "string" ? node.class_type : "Unknown";
-        const title = typeof node._meta?.title === "string" && node._meta.title.trim() ? node._meta.title : classType;
-        const inputFieldCandidates = inputKeys.filter((key) => typeof inputs[key] === "string");
-
-        return {
-            id,
-            title,
-            classType,
-            inputKeys,
-            inputFieldCandidates,
-            isInputCandidate: isInputCandidate(classType, inputs),
-            isOutputCandidate: isOutputCandidate(classType),
+    /**
+     * Adds the current workflow settings as a new selectable preset.
+     * @returns Nothing.
+     */
+    function addWorkflowPreset() {
+        const presetNumber = DBState.db.comfyConfig.video.workflowPresets.length + 1;
+        const preset: ComfyVideoWorkflowPreset = {
+            id: createPresetId(),
+            name: `Workflow ${presetNumber}`,
+            workflow: DBState.db.comfyConfig.video.workflow,
+            inputImageNodeId: DBState.db.comfyConfig.video.inputImageNodeId,
+            inputImageField: DBState.db.comfyConfig.video.inputImageField,
+            outputNodeId: DBState.db.comfyConfig.video.outputNodeId,
+            positivePrompt: DBState.db.comfyConfig.video.positivePrompt,
+            negativePrompt: DBState.db.comfyConfig.video.negativePrompt,
         };
+
+        DBState.db.comfyConfig.video.workflowPresets = [...DBState.db.comfyConfig.video.workflowPresets, preset];
+        DBState.db.comfyConfig.video.selectedWorkflowPresetId = preset.id;
+        applyWorkflowPreset(preset);
     }
 
-    function sortNodeIds(left: string, right: string) {
-        const leftNumber = Number(left);
-        const rightNumber = Number(right);
-        if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
-            return leftNumber - rightNumber;
+    /**
+     * Duplicates the selected preset so the user can safely experiment with variants.
+     * @returns Nothing.
+     */
+    function duplicateWorkflowPreset() {
+        const preset = getSelectedWorkflowPreset();
+        if (!preset) return;
+
+        const copied: ComfyVideoWorkflowPreset = {
+            ...preset,
+            id: createPresetId(),
+            name: `${preset.name} Copy`,
+        };
+
+        DBState.db.comfyConfig.video.workflowPresets = [...DBState.db.comfyConfig.video.workflowPresets, copied];
+        DBState.db.comfyConfig.video.selectedWorkflowPresetId = copied.id;
+        applyWorkflowPreset(copied);
+    }
+
+    /**
+     * Removes the selected preset and activates the next remaining preset when possible.
+     * @returns Nothing.
+     */
+    function deleteWorkflowPreset() {
+        const preset = getSelectedWorkflowPreset();
+        if (!preset) return;
+
+        const remaining = DBState.db.comfyConfig.video.workflowPresets.filter((item) => item.id !== preset.id);
+        DBState.db.comfyConfig.video.workflowPresets = remaining;
+
+        const nextPreset = remaining[0];
+        DBState.db.comfyConfig.video.selectedWorkflowPresetId = nextPreset?.id ?? "";
+        if (nextPreset) {
+            applyWorkflowPreset(nextPreset);
         }
-        return left.localeCompare(right);
-    }
-
-    function isInputCandidate(classType: string, inputs: WorkflowInputs) {
-        return classType.toLowerCase().includes("loadimage") || typeof inputs.image === "string";
-    }
-
-    function isOutputCandidate(classType: string) {
-        const normalizedClassType = classType.toLowerCase();
-        return normalizedClassType.includes("vhs_videocombine")
-            || normalizedClassType.includes("videocombine")
-            || normalizedClassType.includes("save")
-            || normalizedClassType.includes("output");
-    }
-
-    function previewInputKeys(inputKeys: string[]) {
-        if (inputKeys.length === 0) {
-            return "No inputs";
-        }
-
-        const visibleKeys = inputKeys.slice(0, 4).join(", ");
-        return inputKeys.length > 4 ? `${visibleKeys}, +${inputKeys.length - 4}` : visibleKeys;
-    }
-
-    function workflowParseMessage(result: ParsedWorkflow) {
-        return result.ok ? "" : result.message;
     }
 
     function selectInputNode(node: WorkflowNodeSummary, field?: string) {
         DBState.db.comfyConfig.video.inputImageNodeId = node.id;
         DBState.db.comfyConfig.video.inputImageField = field ?? suggestedInputField(node);
+        syncSelectedPresetFromCurrent();
     }
 
     function suggestedInputField(node: WorkflowNodeSummary) {
@@ -135,6 +169,7 @@
 
     function selectOutputNode(node: WorkflowNodeSummary) {
         DBState.db.comfyConfig.video.outputNodeId = node.id;
+        syncSelectedPresetFromCurrent();
     }
 
     function validateWorkflow() {
@@ -170,86 +205,73 @@
         <span class="text-textcolor mt-2">ComfyUI URL</span>
         <TextInput className="mt-2" marginBottom placeholder="http://127.0.0.1:8188" bind:value={DBState.db.comfyUiUrl}/>
 
-        <span class="text-textcolor mt-2">Workflow API JSON</span>
-        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.workflow}/>
-
         <div class="mb-4 rounded-lg border border-bordercolor bg-background2 p-3">
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                    <span class="text-textcolor text-sm font-semibold">Workflow Nodes</span>
-                    <span class="text-textcolor2 text-xs block">Select detected input/output nodes, or keep using the manual fields below.</span>
+                    <span class="text-textcolor text-sm font-semibold">Workflow Presets</span>
+                    <span class="text-textcolor2 text-xs block">Save multiple ComfyUI API workflows and choose which one is used for video generation.</span>
                 </div>
-                {#if workflowParseResult.ok}
-                    <span class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor2">{workflowParseResult.nodes.length} nodes parsed</span>
-                {/if}
+                <div class="flex flex-wrap gap-2">
+                    <button class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor transition-colors hover:bg-textcolor2" onclick={addWorkflowPreset}>
+                        Add current as preset
+                    </button>
+                    <button class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor transition-colors hover:bg-textcolor2 disabled:opacity-50" disabled={!selectedWorkflowPreset} onclick={duplicateWorkflowPreset}>
+                        Duplicate
+                    </button>
+                    <button class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor transition-colors hover:bg-textcolor2 disabled:opacity-50" disabled={!selectedWorkflowPreset} onclick={deleteWorkflowPreset}>
+                        Delete
+                    </button>
+                </div>
             </div>
 
-            {#if workflowParseResult.ok}
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {#each workflowParseResult.nodes as node (node.id)}
-                        <div class:border-selected={DBState.db.comfyConfig.video.inputImageNodeId === node.id || DBState.db.comfyConfig.video.outputNodeId === node.id} class:bg-selected={DBState.db.comfyConfig.video.inputImageNodeId === node.id || DBState.db.comfyConfig.video.outputNodeId === node.id} class="rounded-md border border-bordercolor bg-background p-3 transition-colors">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-2">
-                                        <span class="rounded bg-darkbutton px-2 py-0.5 text-xs text-textcolor">#{node.id}</span>
-                                        {#if node.isInputCandidate}
-                                            <span class="rounded bg-selected px-2 py-0.5 text-xs text-primary">input</span>
-                                        {/if}
-                                        {#if node.isOutputCandidate}
-                                            <span class="rounded bg-selected px-2 py-0.5 text-xs text-textcolor">output</span>
-                                        {/if}
-                                    </div>
-                                    <div class="mt-2 truncate text-sm font-semibold text-textcolor" title={node.title}>{node.title}</div>
-                                    <div class="truncate text-xs text-textcolor2" title={node.classType}>{node.classType}</div>
-                                </div>
-                            </div>
-
-                            <div class="mt-2 text-xs text-textcolor2" title={node.inputKeys.join(", ")}>inputs: {previewInputKeys(node.inputKeys)}</div>
-
-                            <div class="mt-3 flex flex-wrap gap-2">
-                                {#if node.isInputCandidate}
-                                    <button class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor transition-colors hover:bg-textcolor2" onclick={() => selectInputNode(node)}>
-                                        Use as input
-                                    </button>
-                                {/if}
-                                {#if node.isOutputCandidate}
-                                    <button class="rounded-md bg-darkbutton px-2 py-1 text-xs text-textcolor transition-colors hover:bg-textcolor2" onclick={() => selectOutputNode(node)}>
-                                        Use as output
-                                    </button>
-                                {/if}
-                            </div>
-
-                            {#if node.isInputCandidate && node.inputFieldCandidates.length > 0}
-                                <div class="mt-2 flex flex-wrap gap-1">
-                                    {#each node.inputFieldCandidates as field}
-                                        <button class:border-selected={DBState.db.comfyConfig.video.inputImageNodeId === node.id && DBState.db.comfyConfig.video.inputImageField === field} class:text-textcolor={DBState.db.comfyConfig.video.inputImageNodeId === node.id && DBState.db.comfyConfig.video.inputImageField === field} class="rounded border border-bordercolor px-2 py-0.5 text-xs text-textcolor2 transition-colors hover:text-textcolor" onclick={() => selectInputNode(node, field)}>
-                                            field: {field}
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                        </div>
+            {#if DBState.db.comfyConfig.video.workflowPresets.length > 0}
+                <span class="text-textcolor mt-2 text-xs">Selected Preset</span>
+                <SelectInput className="mt-2 mb-3" bind:value={DBState.db.comfyConfig.video.selectedWorkflowPresetId} onchange={handlePresetChange}>
+                    {#each DBState.db.comfyConfig.video.workflowPresets as preset (preset.id)}
+                        <OptionInput value={preset.id}>{preset.name}</OptionInput>
                     {/each}
-                </div>
+                </SelectInput>
+
+                {#if selectedWorkflowPreset}
+                    <span class="text-textcolor mt-2 text-xs">Preset Name</span>
+                    <TextInput className="mt-2" marginBottom bind:value={selectedWorkflowPreset.name}/>
+                {/if}
             {:else}
                 <div class="rounded-md border border-bordercolor bg-background px-3 py-2 text-xs text-textcolor2">
-                    {workflowParseMessage(workflowParseResult)}
+                    No presets yet. Paste or edit a workflow below, then click “Add current as preset”.
                 </div>
             {/if}
         </div>
 
+        <span class="text-textcolor mt-2">Workflow API JSON</span>
+        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.workflow} onInput={syncSelectedPresetFromCurrent}/>
+
+        <ComfyWorkflowNodes
+            result={workflowParseResult}
+            selectedInputNodeId={DBState.db.comfyConfig.video.inputImageNodeId}
+            selectedInputField={DBState.db.comfyConfig.video.inputImageField}
+            selectedOutputNodeId={DBState.db.comfyConfig.video.outputNodeId}
+            showInputActions
+            showOutputActions
+            onSelectInput={selectInputNode}
+            onSelectOutput={selectOutputNode}
+            onUpdateNode={updateWorkflowNode}
+            emptyTitle="Workflow Nodes"
+            emptyDescription="Select detected input/output nodes, or keep using the manual fields below."
+        />
+
         <div class="grid grid-cols-2 gap-3">
             <div>
                 <span class="text-textcolor mt-2">Input Image Node ID</span>
-                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.inputImageNodeId}/>
+                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.inputImageNodeId} oninput={syncSelectedPresetFromCurrent}/>
             </div>
             <div>
                 <span class="text-textcolor mt-2">Input Image Field</span>
-                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.inputImageField}/>
+                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.inputImageField} oninput={syncSelectedPresetFromCurrent}/>
             </div>
             <div>
                 <span class="text-textcolor mt-2">Output Node ID</span>
-                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.outputNodeId}/>
+                <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.video.outputNodeId} oninput={syncSelectedPresetFromCurrent}/>
             </div>
             <div>
                 <span class="text-textcolor mt-2">Timeout (sec)</span>
@@ -258,10 +280,10 @@
         </div>
 
         <span class="text-textcolor mt-2">Positive Prompt</span>
-        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.positivePrompt}/>
+        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.positivePrompt} onInput={syncSelectedPresetFromCurrent}/>
 
         <span class="text-textcolor mt-2">Negative Prompt</span>
-        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.negativePrompt}/>
+        <TextAreaInput className="mt-2" margin="bottom" bind:value={DBState.db.comfyConfig.video.negativePrompt} onInput={syncSelectedPresetFromCurrent}/>
 
         <span class="text-textcolor mt-2">Output Format</span>
         <span class="text-textcolor2 text-xs mb-4 block">

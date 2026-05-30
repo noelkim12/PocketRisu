@@ -8,9 +8,15 @@ vi.mock('../globalApi.svelte', () => ({
     saveAsset: () => {},
 }))
 
+vi.mock('../stores.svelte', () => ({
+    DBState: { db: undefined },
+    selectedCharID: { subscribe: () => () => {} },
+    selIdState: { subscribe: () => () => {} },
+}))
+
 const { setDatabase } = await import('./database.svelte')
 
-describe('ComfyUI video config defaults', () => {
+describe('ComfyUI config defaults', () => {
     it('backfills comfyConfig.video for older databases', () => {
         const db = {
             comfyConfig: {
@@ -25,8 +31,12 @@ describe('ComfyUI video config defaults', () => {
 
         setDatabase(db)
 
+        expect(db.comfyConfig.selectedWorkflowPresetId).toBe('')
+        expect(db.comfyConfig.workflowPresets).toEqual([])
         expect(db.comfyConfig.video).toEqual({
             enabled: false,
+            selectedWorkflowPresetId: '',
+            workflowPresets: [],
             workflow: '',
             inputImageNodeId: '32',
             inputImageField: 'image',
@@ -63,8 +73,27 @@ describe('ComfyUI video config defaults', () => {
 
         setDatabase(db)
 
+        expect(db.comfyConfig.selectedWorkflowPresetId).toBe('default')
+        expect(db.comfyConfig.workflowPresets).toEqual([{
+            id: 'default',
+            name: 'Default workflow',
+            workflow: 'legacy-wf',
+            thumbnailPrompt: '',
+            thumbnailInlayId: '',
+        }])
         expect(db.comfyConfig.video).toEqual({
             enabled: true,
+            selectedWorkflowPresetId: 'default',
+            workflowPresets: [{
+                id: 'default',
+                name: 'Default workflow',
+                workflow: '{"30":{}}',
+                inputImageNodeId: '33',
+                inputImageField: 'image2',
+                outputNodeId: '31',
+                positivePrompt: 'hello',
+                negativePrompt: 'world',
+            }],
             workflow: '{"30":{}}',
             inputImageNodeId: '33',
             inputImageField: 'image2',
@@ -73,6 +102,35 @@ describe('ComfyUI video config defaults', () => {
             negativePrompt: 'world',
             timeout: 600,
             hoverButtonDurationMs: 5000,
+        })
+    })
+
+    it('backfills ComfyUI image preset thumbnail fields', () => {
+        const db = {
+            comfyConfig: {
+                selectedWorkflowPresetId: 'preset-a',
+                workflowPresets: [{
+                    id: 'preset-a',
+                    name: 'Preset A',
+                    workflow: '{"1":{}}',
+                }],
+                workflow: '',
+                posNodeID: '',
+                posInputName: 'text',
+                negNodeID: '',
+                negInputName: 'text',
+                timeout: 30,
+            },
+        } as any
+
+        setDatabase(db)
+
+        expect(db.comfyConfig.workflowPresets[0]).toEqual({
+            id: 'preset-a',
+            name: 'Preset A',
+            workflow: '{"1":{}}',
+            thumbnailPrompt: '',
+            thumbnailInlayId: '',
         })
     })
 })

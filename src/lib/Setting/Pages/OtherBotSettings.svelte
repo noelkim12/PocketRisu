@@ -5,7 +5,7 @@
     import { language } from "src/lang";
     import Help from "src/lib/Others/Help.svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { DBState, selectedCharID } from 'src/ts/stores.svelte';
+    import { DBState, OtherBotSubmenuIndex, selectedCharID } from 'src/ts/stores.svelte';
     import { saveAsset, downloadFile, globalFetch } from "src/ts/globalApi.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -22,8 +22,6 @@
     import { PlusIcon, PencilIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon } from "@lucide/svelte";
     import { alertError, alertInput, alertConfirm, notifySuccess, notifyError } from "src/ts/alert";
     import { createHypaV3Preset } from "src/ts/process/memory/hypav3";
-
-    let submenu = $state(0);
 
     // HypaV3
     $effect(() => {
@@ -124,7 +122,7 @@
                 return;
             }
 
-            let responseData;
+            let responseData: any;
             try {
                 responseData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
             } catch (e) {
@@ -229,9 +227,9 @@
     { label: 'TTS', value: 1 },
     { label: language.emotionImage, value: 2 },
     { label: language.imageGeneration, value: 3 },
-]} bind:selected={submenu} />
+]} bind:selected={$OtherBotSubmenuIndex} />
 
-{#if submenu === 3}
+{#if $OtherBotSubmenuIndex === 3}
     <Accordion name={language.imageGeneration} styled disabled>
         <span class="text-textcolor mt-2">{language.imageGeneration} {language.provider} <Help key="sdProvider"/></span>
         <SelectInput className="mt-2 mb-4" bind:value={DBState.db.sdProvider}>
@@ -689,12 +687,9 @@
         {#if DBState.db.sdProvider === 'comfyui'}
             <span class="text-textcolor mt-2">ComfyUI {language.providerURL} <Help key="comfyUrl"/></span>
             <TextInput className="mt-2" marginBottom placeholder="http://127.0.0.1:8188" bind:value={DBState.db.comfyUiUrl}/>
-
-            <span class="text-textcolor">Workflow <Help key="comfyWorkflow" /></span>
-            <TextInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.workflow}/>
-
-            <span class="text-textcolor">Timeout (sec) <Help key="comfyTimeout"/></span>
-            <NumberInput className="mt-2" marginBottom bind:value={DBState.db.comfyConfig.timeout} min={1} max={120} />
+            <div class="rounded-md border border-bordercolor bg-background px-3 py-2 text-xs text-textcolor2">
+                ComfyUI workflow presets are managed in the dedicated ComfyUI Image settings page.
+            </div>
         {/if}
 
         {#if DBState.db.sdProvider === 'comfy'}
@@ -937,7 +932,7 @@
     </Accordion>
 {/if}
 
-{#if submenu === 1}
+{#if $OtherBotSubmenuIndex === 1}
 <Accordion name="TTS" styled disabled>
     <span class="text-textcolor mt-2">Auto Speech <Help key="ttsAutoSpeech"/></span>
     <CheckInput className="mt-2" bind:check={DBState.db.ttsAutoSpeech}/>
@@ -963,7 +958,7 @@
 </Accordion>
 {/if}
 
-{#if submenu === 2}
+{#if $OtherBotSubmenuIndex === 2}
 <Accordion name={language.emotionImage} styled disabled>
     <span class="text-textcolor mt-2">{language.emotionMethod} <Help key="emotionMethod"/></span>
 
@@ -974,7 +969,7 @@
 </Accordion>
 {/if}
 
-{#if submenu === 0}
+{#if $OtherBotSubmenuIndex === 0}
     <Accordion name={language.longTermMemory} styled disabled>
         <span class="text-textcolor mt-4">{language.type} <Help key="memType"/></span>
 

@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
-import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
+import { appVer, getCurrentCharacter, getDatabase, type ComfyVideoConfig, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
 import { DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
 import { isNodeServer } from "src/ts/platform"
@@ -712,17 +712,27 @@ function shouldUseComfyVideoAction() {
     return DBState.db?.comfyConfig?.video?.enabled === true
 }
 
-async function generateComfyVideoForInlay(args: { img: HTMLImageElement; inlayId: string }) {
+/**
+ * Returns the selected ComfyUI video workflow preset, falling back to the
+ * legacy single-workflow fields. Used by inlay generation so older databases
+ * and preset-enabled databases share one execution path.
+ */
+function getActiveComfyVideoWorkflow(config: ComfyVideoConfig) {
+    return config.workflowPresets?.find((preset) => preset.id === config.selectedWorkflowPresetId) ?? config.workflowPresets?.[0] ?? config
+}
+
+async function generateComfyVideoForInlay(args: { img: HTMLImageElement; inlayId: string; positivePrompt: string | null }) {
     const config = DBState.db?.comfyConfig?.video
     if (!config?.enabled) {
         notifyError('ComfyUI video generation is disabled')
-        return
+        return false
     }
 
     const db = getDatabase()
-    if (!db?.comfyUiUrl || !config.workflow) {
+    const workflowConfig = getActiveComfyVideoWorkflow(config)
+    if (!db?.comfyUiUrl || !workflowConfig.workflow) {
         notifyError('ComfyUI video generation is not configured')
-        return
+        return false
     }
 
     try {
@@ -737,12 +747,12 @@ async function generateComfyVideoForInlay(args: { img: HTMLImageElement; inlayId
             baseUrl: db.comfyUiUrl,
             image: originalBlob,
             filename: `${args.inlayId}.png`,
-            workflowText: config.workflow,
-            inputImageNodeId: config.inputImageNodeId,
-            inputImageField: config.inputImageField,
-            outputNodeId: config.outputNodeId,
-            positivePrompt: config.positivePrompt,
-            negativePrompt: config.negativePrompt,
+            workflowText: workflowConfig.workflow,
+            inputImageNodeId: workflowConfig.inputImageNodeId,
+            inputImageField: workflowConfig.inputImageField,
+            outputNodeId: workflowConfig.outputNodeId,
+            positivePrompt: args.positivePrompt ?? workflowConfig.positivePrompt,
+            negativePrompt: workflowConfig.negativePrompt,
             timeoutSeconds: config.timeout,
         })
 
@@ -763,9 +773,11 @@ async function generateComfyVideoForInlay(args: { img: HTMLImageElement; inlayId
         args.img.setAttribute('data-inlay-id', args.inlayId)
         args.img.setAttribute('data-comfy-video-display-id', generatedId)
         notifySuccess('ComfyUI video generated')
+        return true
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         notifyError(`ComfyUI video generation failed: ${message}`)
+        return false
     }
 }
 
@@ -812,164 +824,180 @@ export function parseInlayAssets(data:string){
 const resolveQueue: { el: HTMLElement, id: string, type: string }[] = []
 let isResolvingPlaceholders = false
 
+type ResolveInlayPlaceholderOptions = {
+    eager?: boolean
+}
+
+function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserver) {
+    if (el.hasAttribute('data-inlay-resolving')) return
+
+    const id = el.getAttribute('data-inlay-id')
+    const type = el.getAttribute('data-inlay-type')
+    if (!id) return
+
+    el.setAttribute('data-inlay-resolving', 'true')
+    observer?.unobserve(el)
+    resolveQueue.push({ el, id, type: type || 'inlay' })
+    void processInlayQueue()
+}
+
 async function processInlayQueue() {
     if (isResolvingPlaceholders || resolveQueue.length === 0) return
     isResolvingPlaceholders = true
 
-    while (resolveQueue.length > 0) {
-        const batch = resolveQueue.splice(0, 20)
+    try {
+        while (resolveQueue.length > 0) {
+            const batch = resolveQueue.splice(0, 20)
 
-        const unknownIds = batch
-            .filter(({ id }) => !blobUrlCache.has(id))
-            .map(({ id }) => id)
+            const unknownIds = batch
+                .filter(({ id }) => !blobUrlCache.has(id))
+                .map(({ id }) => id)
 
-        if (unknownIds.length > 0) {
-            if (DBState.db.inlayImagePriority) {
-                // Fast path: assume image, let img.onerror handle video/audio
-                for (const id of unknownIds) {
-                    blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type: 'image' })
-                }
-            } else {
-                // Accurate path: fetch type info first
-                try {
-                    const infos = await getInlayInfosBatch(unknownIds)
-                    for (const id of unknownIds) {
-                        const type = infos[id]?.type ?? 'image'
-                        blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type })
-                    }
-                } catch {
+            if (unknownIds.length > 0) {
+                if (DBState.db.inlayImagePriority) {
+                    // Fast path: assume image, let img.onerror handle video/audio
                     for (const id of unknownIds) {
                         blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type: 'image' })
                     }
+                } else {
+                    // Accurate path: fetch type info first
+                    try {
+                        const infos = await getInlayInfosBatch(unknownIds)
+                        for (const id of unknownIds) {
+                            const type = infos[id]?.type ?? 'image'
+                            blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type })
+                        }
+                    } catch {
+                        for (const id of unknownIds) {
+                            blobUrlCache.set(id, { url: assetUrl(`inlay/${id}`), type: 'image' })
+                        }
+                    }
                 }
             }
-        }
 
-        for (const { el, id } of batch) {
-            try {
-                if (!el.parentNode) continue
+            for (const { el, id } of batch) {
+                try {
+                    if (!el.parentNode) continue
 
-                let cached = blobUrlCache.get(id)
-                const displayAssetId = cached?.displayAssetId ?? await resolveComfyVideoDisplayAssetId(id)
-                if (displayAssetId && (!cached || cached.type === 'image')) {
-                    cached = { url: assetUrl(`inlay/${displayAssetId}`), type: 'image', displayAssetId }
-                    blobUrlCache.set(id, cached)
-                }
+                    let cached = blobUrlCache.get(id)
+                    const displayAssetId = cached?.displayAssetId ?? await resolveComfyVideoDisplayAssetId(id)
+                    if (displayAssetId && (!cached || cached.type === 'image')) {
+                        cached = { url: assetUrl(`inlay/${displayAssetId}`), type: 'image', displayAssetId }
+                        blobUrlCache.set(id, cached)
+                    }
 
-                const url = cached?.url ?? assetUrl(`inlay/${id}`)
-                const type = cached?.type ?? 'image'
-                if (!cached) blobUrlCache.set(id, { url, type })
+                    const url = cached?.url ?? assetUrl(`inlay/${id}`)
+                    const type = cached?.type ?? 'image'
+                    if (!cached) blobUrlCache.set(id, { url, type })
 
-                switch (type) {
-                    case 'image': {
-                        if (DBState.db.hideAllImages) { el.remove(); break }
-                        const img = document.createElement('img')
-                        img.setAttribute('data-inlay-id', id)
-                        if (displayAssetId) {
-                            img.setAttribute('data-comfy-video-display-id', displayAssetId)
-                        }
-                        img.src = url
-                        img.style.animation = 'risu-fade-in 0.3s ease-out'
-                        // Fallback for legacy inlays without inlay_info:
-                        // if <img> fails, probe Content-Type and swap to video/audio
-                        img.onerror = async () => {
-                            const currentRenderedNode = () => {
-                                const parent = img.parentElement
-                                return parent?.classList.contains('x-risu-risu-comfy-video-image-wrap') ? parent : img
+                    switch (type) {
+                        case 'image': {
+                            if (DBState.db.hideAllImages) { el.remove(); break }
+                            const img = document.createElement('img')
+                            img.setAttribute('data-inlay-id', id)
+                            if (displayAssetId) {
+                                img.setAttribute('data-comfy-video-display-id', displayAssetId)
                             }
-                            try {
-                                const head = await fetch(url, { method: 'HEAD' })
-                                const ct = head.headers.get('content-type') || ''
-                                if (ct.startsWith('video/')) {
-                                    blobUrlCache.set(id, { url, type: 'video' })
-                                    const video = document.createElement('video')
-                                    video.controls = true
-                                    const src = document.createElement('source')
-                                    src.src = url; src.type = ct
-                                    video.appendChild(src)
-                                    currentRenderedNode().replaceWith(video)
-                                } else if (ct.startsWith('audio/')) {
-                                    blobUrlCache.set(id, { url, type: 'audio' })
-                                    const audio = document.createElement('audio')
-                                    audio.controls = true
-                                    const src = document.createElement('source')
-                                    src.src = url; src.type = ct
-                                    audio.appendChild(src)
-                                    currentRenderedNode().replaceWith(audio)
-                                } else {
+                            img.src = url
+                            img.style.animation = 'risu-fade-in 0.3s ease-out'
+                            // Fallback for legacy inlays without inlay_info:
+                            // if <img> fails, probe Content-Type and swap to video/audio
+                            img.onerror = async () => {
+                                const currentRenderedNode = () => {
+                                    const parent = img.parentElement
+                                    return parent?.classList.contains('x-risu-risu-comfy-video-image-wrap') ? parent : img
+                                }
+                                try {
+                                    const head = await fetch(url, { method: 'HEAD' })
+                                    const ct = head.headers.get('content-type') || ''
+                                    if (ct.startsWith('video/')) {
+                                        blobUrlCache.set(id, { url, type: 'video' })
+                                        const video = document.createElement('video')
+                                        video.controls = true
+                                        const src = document.createElement('source')
+                                        src.src = url; src.type = ct
+                                        video.appendChild(src)
+                                        currentRenderedNode().replaceWith(video)
+                                    } else if (ct.startsWith('audio/')) {
+                                        blobUrlCache.set(id, { url, type: 'audio' })
+                                        const audio = document.createElement('audio')
+                                        audio.controls = true
+                                        const src = document.createElement('source')
+                                        src.src = url; src.type = ct
+                                        audio.appendChild(src)
+                                        currentRenderedNode().replaceWith(audio)
+                                    } else {
+                                        currentRenderedNode().replaceWith(createMissingInlayPlaceholder(id))
+                                    }
+                                } catch {
                                     currentRenderedNode().replaceWith(createMissingInlayPlaceholder(id))
                                 }
-                            } catch {
-                                currentRenderedNode().replaceWith(createMissingInlayPlaceholder(id))
                             }
+                            if (shouldUseComfyVideoAction()) {
+                                const durationMs = DBState.db?.comfyConfig?.video?.hoverButtonDurationMs ?? 3000
+                                el.replaceWith(wrapImageWithComfyVideoAction(img, {
+                                    durationMs,
+                                    inlayId: id,
+                                    onGenerate: generateComfyVideoForInlay,
+                                }))
+                            } else {
+                                el.replaceWith(img)
+                            }
+                            break
                         }
-                        if (shouldUseComfyVideoAction()) {
-                            const durationMs = DBState.db?.comfyConfig?.video?.hoverButtonDurationMs ?? 3000
-                            el.replaceWith(wrapImageWithComfyVideoAction(img, {
-                                durationMs,
-                                inlayId: id,
-                                onGenerate: generateComfyVideoForInlay,
-                            }))
-                        } else {
-                            el.replaceWith(img)
+                        case 'video': {
+                            const video = document.createElement('video')
+                            video.controls = true
+                            const source = document.createElement('source')
+                            source.src = url
+                            source.type = 'video/mp4'
+                            video.appendChild(source)
+                            el.replaceWith(video)
+                            break
                         }
-                        break
+                        case 'audio': {
+                            const audio = document.createElement('audio')
+                            audio.controls = true
+                            const source = document.createElement('source')
+                            source.src = url
+                            source.type = 'audio/mpeg'
+                            audio.appendChild(source)
+                            el.replaceWith(audio)
+                            break
+                        }
                     }
-                    case 'video': {
-                        const video = document.createElement('video')
-                        video.controls = true
-                        const source = document.createElement('source')
-                        source.src = url
-                        source.type = 'video/mp4'
-                        video.appendChild(source)
-                        el.replaceWith(video)
-                        break
+                } catch (e) {
+                    console.error(`[Inlay] Failed to load ${id}`, e)
+                    if (el.parentNode) {
+                        el.replaceWith(createMissingInlayPlaceholder(id))
                     }
-                    case 'audio': {
-                        const audio = document.createElement('audio')
-                        audio.controls = true
-                        const source = document.createElement('source')
-                        source.src = url
-                        source.type = 'audio/mpeg'
-                        audio.appendChild(source)
-                        el.replaceWith(audio)
-                        break
-                    }
-                }
-            } catch (e) {
-                console.error(`[Inlay] Failed to load ${id}`, e)
-                if (el.parentNode) {
-                    el.replaceWith(createMissingInlayPlaceholder(id))
                 }
             }
         }
+    } finally {
+        isResolvingPlaceholders = false
     }
-
-    isResolvingPlaceholders = false
 }
 
-export function resolveInlayPlaceholders(root: HTMLElement) {
+export function resolveInlayPlaceholders(root: HTMLElement, options: ResolveInlayPlaceholderOptions = {}) {
     if (!root) return
     const placeholders = Array.from(root.querySelectorAll('[data-inlay-id][data-inlay-type]:not([data-inlay-resolving])')) as HTMLElement[]
     if (placeholders.length === 0) return
 
+    if (options.eager || !globalThis.IntersectionObserver) {
+        placeholders.forEach((el) => enqueueInlayPlaceholder(el))
+        return
+    }
+
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
-                const el = entry.target as HTMLElement
-                const id = el.getAttribute('data-inlay-id')
-                const type = el.getAttribute('data-inlay-type')
-                if (id) {
-                    resolveQueue.push({ el, id, type: type || 'inlay' })
-                    observer.unobserve(el)
-                    processInlayQueue()
-                }
+                enqueueInlayPlaceholder(entry.target as HTMLElement, observer)
             }
         })
     }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view
 
     placeholders.forEach(el => {
-        el.setAttribute('data-inlay-resolving', 'true')
         observer.observe(el)
     })
 }

@@ -576,6 +576,73 @@ body {
   @apply rounded-lg focus:outline-hidden max-w-80 w-full;
 }
 
+.generation-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: min(28rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+  padding: 0.625rem 1rem;
+  color: white;
+  background: rgba(17, 24, 39, 0.92);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  animation: risu-fade-in 0.18s ease-out;
+}
+
+.generation-progress-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.generation-progress-running .generation-progress-icon {
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  animation: risu-spin 0.8s linear infinite;
+}
+
+.generation-progress-done .generation-progress-icon {
+  background: rgb(34, 197, 94);
+}
+
+.generation-progress-error .generation-progress-icon {
+  background: rgb(239, 68, 68);
+}
+
+.generation-progress-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.generation-progress-title,
+.generation-progress-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-progress-title {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+.generation-progress-detail {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
 .x-risu-risu-inlay-missing {
   @apply w-full max-w-80 rounded-lg border border-darkborderc/70 bg-black/15 text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
   min-height: 120px;

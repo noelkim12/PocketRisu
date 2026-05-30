@@ -7,6 +7,120 @@ import { CharEmotion } from "../stores.svelte"
 import type { OpenAIChat } from "./index.svelte"
 import { processZip } from "./processzip"
 import random from "lodash/random"
+import { withGenerationIndicator, withNovelAIQueue } from "../generationIndicator"
+
+interface ComfyImageWorkflowGenerationArgs {
+    workflow: string
+    genPrompt: string
+    neg: string
+    baseUrl: string
+    timeoutSec: number
+    legacy?: boolean
+    posNodeID?: string
+    posInputName?: string
+    negNodeID?: string
+    negInputName?: string
+}
+
+/**
+ * Runs one ComfyUI API workflow and returns the first generated image as a data URI.
+ * @param args Workflow JSON, prompt replacements, ComfyUI URL, timeout, and optional legacy node mapping.
+ * @returns First generated image data URI, or false when the request fails.
+ */
+export async function generateComfyImageFromWorkflow(args: ComfyImageWorkflowGenerationArgs): Promise<string | false> {
+    const baseUrl = new URL(args.baseUrl)
+    const createUrl = (pathname: string, params: Record<string, string> = {}) => {
+        const url = args.baseUrl.endsWith('/api') ? new URL(`${args.baseUrl}${pathname}`) : new URL(pathname, baseUrl)
+        url.search = new URLSearchParams(params).toString()
+        return url.toString()
+    }
+
+    const fetchWrapper = async (url: string, options = {}) => {
+        console.log(url)
+        const response = await globalFetch(url, options)
+        if (!response.ok) {
+            console.log(JSON.stringify(response.data))
+            throw new Error(JSON.stringify(response.data))
+        }
+        return response.data
+    }
+
+    try {
+        const prompt: any = JSON.parse(args.workflow)
+        if(args.legacy){
+            const posNodeID = args.posNodeID ?? ''
+            const posInputName = args.posInputName ?? 'text'
+            const negNodeID = args.negNodeID ?? ''
+            const negInputName = args.negInputName ?? 'text'
+            prompt[posNodeID].inputs[posInputName] = args.genPrompt
+            prompt[negNodeID].inputs[negInputName] = args.neg
+        }
+        else{
+            //search all nodes for the prompt and negative prompt
+            const keys = Object.keys(prompt)
+            for(let i = 0; i < keys.length; i++){
+                const node = prompt[keys[i]]
+                const inputKeys = Object.keys(node.inputs)
+                for(let j = 0; j < inputKeys.length; j++){
+                    let input = node.inputs[inputKeys[j]]
+                    if(typeof input === 'string'){
+                        input = input.replaceAll('{{risu_prompt}}', args.genPrompt)
+                        input = input.replaceAll('{{risu_neg}}', args.neg)
+                    }
+
+                    if(inputKeys[j] === 'seed' && typeof input === 'number'){
+                        input = Math.floor(Math.random() * 1000000000)
+                    }
+
+                    node.inputs[inputKeys[j]] = input
+                }
+            }
+        }
+
+        const { prompt_id: id } = await fetchWrapper(createUrl('/prompt'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: { 'prompt': prompt }
+        })
+        console.log(`prompt id: ${id}`)
+
+        let item: any = null
+
+        const startTime = Date.now()
+        const timeout = args.timeoutSec * 1000
+        while (!item) {
+            const history = await (await fetchNative(createUrl('/history'), {
+                headers: { 'Content-Type': 'application/json' },
+                method: 'GET'
+            })).json()
+            item = history[id]
+            if (item) break
+
+            console.log("Checking /history...")
+            if (Date.now() - startTime >= timeout) {
+                alertError("Error: Image generation took longer than expected.");
+                return false
+            }
+            await new Promise(r => setTimeout(r, 1000))
+        } // Check history until the generation is complete.
+        const genImgInfo = Object.values(item.outputs).flatMap((output: any) => output.images)[0];
+
+        const imgResponse = await fetchNative(createUrl('/view', {
+            filename: genImgInfo.filename,
+            subfolder: genImgInfo.subfolder,
+            type: genImgInfo.type
+        }), {
+            headers: { 'Content-Type': 'application/json' },
+            method: 'GET'
+        })
+        const img64 = Buffer.from(await imgResponse.arrayBuffer()).toString('base64')
+
+        return `data:image/png;base64,${img64}`
+    } catch (error) {
+        notifyError(error)
+        return false
+    }
+}
 
 export async function stableDiff(currentChar:character,prompt:string){
     let db = getDatabase()
@@ -352,7 +466,14 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             console.log({nothing:reqlist});
            
         }
-        try {
+        return await withNovelAIQueue({
+            kind: 'image',
+            provider: 'NovelAI',
+            message: 'Queued NovelAI image...',
+            doneMessage: 'NovelAI image ready',
+            failMessage: 'NovelAI image generation failed',
+            isSuccess: (result) => result !== false && result !== '',
+        }, async () => {
             const da = await globalFetch(db.NAIImgUrl, reqlist)   
 
             if(returnSdData === 'inlay'){
@@ -381,10 +502,10 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             return returnSdData
 
 
-        } catch (error) {
+        }).catch((error) => {
             notifyError(error)
             return false   
-        }
+        })
     }
     if(db.sdProvider === 'dalle'){
         const da = await globalFetch("https://api.openai.com/v1/images/generations", {
@@ -483,103 +604,52 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
 
     if(db.sdProvider === 'comfy' || db.sdProvider === 'comfyui'){
         const legacy = db.sdProvider === 'comfy' // Legacy Comfy mode
-        const {workflow, posNodeID, posInputName, negNodeID, negInputName} = db.comfyConfig
-        const baseUrl = new URL(db.comfyUiUrl)
+        const activeWorkflowPreset = !legacy
+            ? db.comfyConfig.workflowPresets?.find((preset) => preset.id === db.comfyConfig.selectedWorkflowPresetId) ?? db.comfyConfig.workflowPresets?.[0]
+            : undefined
+        const workflow = activeWorkflowPreset?.workflow ?? db.comfyConfig.workflow
+        const {posNodeID, posInputName, negNodeID, negInputName} = db.comfyConfig
 
-        const createUrl = (pathname: string, params: Record<string, string> = {}) => {
-            const url = db.comfyUiUrl.endsWith('/api') ? new URL(`${db.comfyUiUrl}${pathname}`) : new URL(pathname, baseUrl)
-            url.search = new URLSearchParams(params).toString()
-            return url.toString()
-        }
-
-        const fetchWrapper = async (url: string, options = {}) => {
-            console.log(url)
-            const response = await globalFetch(url, options)
-            if (!response.ok) {
-                console.log(JSON.stringify(response.data))
-                throw new Error(JSON.stringify(response.data))
-            }
-            return response.data
-        }
-
-        try {
-            const prompt = JSON.parse(workflow)
-            if(legacy){
-                prompt[posNodeID].inputs[posInputName] = genPrompt
-                prompt[negNodeID].inputs[negInputName] = neg
-            }
-            else{
-                //search all nodes for the prompt and negative prompt
-                const keys = Object.keys(prompt)
-                for(let i = 0; i < keys.length; i++){
-                    const node = prompt[keys[i]]
-                    const inputKeys = Object.keys(node.inputs)
-                    for(let j = 0; j < inputKeys.length; j++){
-                        let input = node.inputs[inputKeys[j]]
-                        if(typeof input === 'string'){
-                            input = input.replaceAll('{{risu_prompt}}', genPrompt) 
-                            input = input.replaceAll('{{risu_neg}}', neg)
-                        }
-
-                        if(inputKeys[j] === 'seed' && typeof input === 'number'){
-                            input = Math.floor(Math.random() * 1000000000)
-                        }
-
-                        node.inputs[inputKeys[j]] = input
-                    }
-                }
-            }
-
-            const { prompt_id: id } = await fetchWrapper(createUrl('/prompt'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: { 'prompt': prompt }
+        return await withGenerationIndicator({
+            kind: 'image',
+            provider: 'ComfyUI',
+            message: 'Generating ComfyUI image...',
+            detail: 'Running workflow',
+            doneMessage: 'ComfyUI image ready',
+            failMessage: 'ComfyUI image generation failed',
+            isSuccess: (result) => result !== false,
+        }, async () => {
+            const img = await generateComfyImageFromWorkflow({
+                workflow,
+                genPrompt,
+                neg,
+                baseUrl: db.comfyUiUrl,
+                timeoutSec: db.comfyConfig.timeout,
+                legacy,
+                posNodeID,
+                posInputName,
+                negNodeID,
+                negInputName,
             })
-            console.log(`prompt id: ${id}`)
-
-            let item
-
-            const startTime = Date.now()
-            const timeout = db.comfyConfig.timeout * 1000
-            while (!(item = (await (await fetchNative(createUrl('/history'), {
-                headers: { 'Content-Type': 'application/json' },
-                method: 'GET'
-            })).json())[id])) {
-                console.log("Checking /history...")
-                if (Date.now() - startTime >= timeout) {
-                    alertError("Error: Image generation took longer than expected.");
-                    return false
-                }
-                await new Promise(r => setTimeout(r, 1000))
-            } // Check history until the generation is complete.
-            const genImgInfo = Object.values(item.outputs).flatMap((output: any) => output.images)[0];
-
-            const imgResponse = await fetchNative(createUrl('/view', {
-                filename: genImgInfo.filename,
-                subfolder: genImgInfo.subfolder,
-                type: genImgInfo.type
-            }), {
-                headers: { 'Content-Type': 'application/json' }, 
-                method: 'GET'
-            })
-            const img64 = Buffer.from(await imgResponse.arrayBuffer()).toString('base64')
+            if (!img) {
+                return false
+            }
 
             if(returnSdData === 'inlay'){
-                return `data:image/png;base64,${img64}`
+                return img
             }
             else {
                 let charemotions = get(CharEmotion)
-                const img = `data:image/png;base64,${img64}`
                 const emos:[string, string,number][] = [[img, img, Date.now()]]
                 charemotions[currentChar.chaId] = emos
                 CharEmotion.set(charemotions)
             }
 
             return returnSdData
-        } catch (error) {
+        }).catch((error) => {
             notifyError(error)
             return false
-        }
+        })
     }
     if(db.sdProvider === 'fal'){
         const model = db.falModel

@@ -46,6 +46,7 @@ export const MobileGUI = writable(false)
 export const MobileGUIStack = writable(0)
 export const MobileSideBar = writable(0)
 export const SettingsMenuIndex = writable(-1)
+export const OtherBotSubmenuIndex = writable(0)
 // Boot-time backup reminder prompt — set by bootstrap and rendered by
 // BootBackupPrompt. The component resolves the user's choice (proceed/skip)
 // back via the resolve callback. See src/ts/bootstrap.ts.
@@ -73,6 +74,7 @@ export const ebookReaderStore = $state({
     open: false,
     currentChatIndex: -1,
     currentPageIndex: 0,
+    currentChatPageIndex: 0,
     status: 'idle' as EbookReaderStatus,
 })
 export const OpenRealmStore = writable(false)
@@ -96,6 +98,25 @@ export const hypaV3ProgressStore = writable({
     miniMsg: '',
     msg: '',
     subMsg: '',
+})
+export type GenerationIndicatorStatus = 'queued' | 'running' | 'done' | 'error'
+export type GenerationIndicatorKind = 'image' | 'video'
+export type GenerationIndicatorProvider = 'NovelAI' | 'ComfyUI'
+export type GenerationIndicatorJob = {
+    id: number
+    status: GenerationIndicatorStatus
+    kind: GenerationIndicatorKind
+    provider: GenerationIndicatorProvider
+    message: string
+    detail?: string
+}
+export type GenerationIndicatorState = {
+    open: boolean
+    jobs: GenerationIndicatorJob[]
+}
+export const generationIndicatorStore = writable<GenerationIndicatorState>({
+    open: false,
+    jobs: [],
 })
 export const selIdState = $state({
     selId: -1

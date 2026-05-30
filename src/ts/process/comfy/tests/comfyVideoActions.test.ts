@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { wrapImageWithComfyVideoAction } from '../comfyVideoActions'
+import { extractPositivePromptFromXnaiPromptText, wrapImageWithComfyVideoAction } from '../comfyVideoActions'
 
 afterEach(() => {
     vi.restoreAllMocks()
@@ -42,7 +42,79 @@ describe('wrapImageWithComfyVideoAction', () => {
         expect(dispatchResult).toBe(false)
         expect(clickEvent.defaultPrevented).toBe(true)
         expect(parentClick).not.toHaveBeenCalled()
-        expect(onGenerate).toHaveBeenCalledWith({ img, inlayId: 'source-id' })
+        expect(onGenerate).toHaveBeenCalledWith({ img, inlayId: 'source-id', positivePrompt: null })
+    })
+
+    it('extracts the positive section from XNAI prompt text', () => {
+        expect(extractPositivePromptFromXnaiPromptText(`
+            [Positive]
+            dungeon, violet lighting
+
+            [Negative]
+            blur
+        `)).toBe('dungeon, violet lighting')
+    })
+
+    it('returns null when XNAI positive prompt markers are missing or empty', () => {
+        expect(extractPositivePromptFromXnaiPromptText('dungeon, violet lighting')).toBeNull()
+        expect(extractPositivePromptFromXnaiPromptText('[Positive]\n\n[Negative]\nblur')).toBeNull()
+        expect(extractPositivePromptFromXnaiPromptText(null)).toBeNull()
+    })
+
+    it('passes captured XNAI positive prompt to onGenerate when prompt preview is nearby', () => {
+        const container = document.createElement('div')
+        container.className = 'x-risu-lb-xnai-inlay'
+        const img = document.createElement('img')
+        const onGenerate = vi.fn()
+        const wrapper = wrapImageWithComfyVideoAction(img, { durationMs: 3000, inlayId: 'source-id', onGenerate })
+        const prompt = document.createElement('pre')
+        prompt.className = 'x-risu-lb-xnai-fullsize-prompt'
+        prompt.textContent = '[Positive]\n2girls, dungeon, violet lighting\n\n[Negative]\nblur'
+
+        container.appendChild(wrapper)
+        container.appendChild(prompt)
+        document.body.appendChild(container)
+
+        wrapper.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+        expect(onGenerate).toHaveBeenCalledWith({
+            img,
+            inlayId: 'source-id',
+            positivePrompt: '2girls, dungeon, violet lighting',
+        })
+
+        container.remove()
+    })
+
+    it('preserves prompt line breaks represented by br elements', () => {
+        const container = document.createElement('div')
+        container.className = 'x-risu-lb-xnai-inlay'
+        const img = document.createElement('img')
+        const onGenerate = vi.fn()
+        const wrapper = wrapImageWithComfyVideoAction(img, { durationMs: 3000, inlayId: 'source-id', onGenerate })
+        const prompt = document.createElement('pre')
+        prompt.className = 'x-risu-lb-xnai-fullsize-prompt'
+        prompt.append('[Positive]')
+        prompt.appendChild(document.createElement('br'))
+        prompt.append('first line')
+        prompt.appendChild(document.createElement('br'))
+        prompt.append('second line')
+        prompt.appendChild(document.createElement('br'))
+        prompt.append('[Negative]')
+
+        container.appendChild(wrapper)
+        container.appendChild(prompt)
+        document.body.appendChild(container)
+
+        wrapper.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+        expect(onGenerate).toHaveBeenCalledWith({
+            img,
+            inlayId: 'source-id',
+            positivePrompt: 'first line\nsecond line',
+        })
+
+        container.remove()
     })
 
     it('shows generating status and prevents duplicate clicks while generation is pending', () => {

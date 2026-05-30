@@ -34,6 +34,7 @@
     import PopupList from './lib/UI/PopupList.svelte';
     import EasyPanel from './lib/Others/ProTools/EasyPanel.svelte';
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
+    import GenerationProgress from './lib/Others/GenerationProgress.svelte';
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import EbookReaderOverlay from './lib/EbookReader/EbookReaderOverlay.svelte';
     import Portal from './lib/UI/GUI/Portal.svelte';
@@ -230,6 +231,7 @@
         <HypaV3Modal />
     {/if}
     <SavePopupIconComp />
+    <GenerationProgress />
     {#if $hypaV3ProgressStore.open}
         <HypaV3Progress />
     {/if}

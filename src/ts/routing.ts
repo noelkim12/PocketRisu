@@ -11,7 +11,7 @@
 // number — that file is the source of truth and changes there should update
 // this map too.
 
-import { settingsOpen, SettingsMenuIndex, SystemSubmenuIndex } from "./stores.svelte";
+import { OtherBotSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex } from "./stores.svelte";
 
 export const SettingsRoute = {
     None: -1 as const,
@@ -33,6 +33,8 @@ export const SettingsRoute = {
     RemoteAccess: 21 as const,
     System: 22 as const,
     InlayImageGallery: 23 as const,
+    ComfyVideo: 24 as const,
+    ComfyImage: 25 as const,
     DevPanel: 99 as const,
 } as const;
 
@@ -47,15 +49,28 @@ export const SystemTab = {
 
 export type SystemTabValue = (typeof SystemTab)[keyof typeof SystemTab];
 
+/** Sub-tab indices inside the Other Bots settings page. */
+export const OtherBotsTab = {
+    LongTermMemory: 0 as const,
+    Tts: 1 as const,
+    EmotionImage: 2 as const,
+    ImageGeneration: 3 as const,
+} as const;
+
+export type OtherBotsTabValue = (typeof OtherBotsTab)[keyof typeof OtherBotsTab];
+
 /**
  * Open the settings panel and navigate to a specific page (and optional
  * System sub-tab). Use this from anywhere in the app that needs to deep-link
  * into settings.
  */
-export function openSettings(route: SettingsRouteValue, systemTab?: SystemTabValue) {
+export function openSettings(route: SettingsRouteValue, subTab?: SystemTabValue | OtherBotsTabValue) {
     SettingsMenuIndex.set(route);
-    if (systemTab !== undefined) {
-        SystemSubmenuIndex.set(systemTab);
+    if (subTab !== undefined && route === SettingsRoute.System) {
+        SystemSubmenuIndex.set(subTab as SystemTabValue);
+    }
+    if (subTab !== undefined && route === SettingsRoute.OtherBots) {
+        OtherBotSubmenuIndex.set(subTab as OtherBotsTabValue);
     }
     settingsOpen.set(true);
 }

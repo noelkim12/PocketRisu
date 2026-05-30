@@ -31,6 +31,7 @@
 
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
+    import ToolFab from './ToolFab.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import { dispatchEbookReaderNavigation } from '../EbookReader/core/navigationEvents';
     import { getDefaultChatScreen, getTopVisibleChatIndex } from '../EbookReader/core/readerSelectors';
@@ -1164,6 +1165,9 @@
         {/each}
     </div>
 {/if}
+
+<ToolFab />
+
 <style>
 
     .chat-process-stage-1{

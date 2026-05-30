@@ -510,6 +510,8 @@ export function setDatabase(data:Database){
     data.legacyTranslation ??= false
     data.comfyUiUrl ??= 'http://localhost:8188'
     data.comfyConfig ??= {
+        selectedWorkflowPresetId: '',
+        workflowPresets: [],
         workflow: '',
         posNodeID: '',
         posInputName: 'text',
@@ -518,6 +520,8 @@ export function setDatabase(data:Database){
         timeout: 30,
         video: {
             enabled: false,
+            selectedWorkflowPresetId: '',
+            workflowPresets: [],
             workflow: '',
             inputImageNodeId: '32',
             inputImageField: 'image',
@@ -528,8 +532,23 @@ export function setDatabase(data:Database){
             hoverButtonDurationMs: 3000,
         }
     }
+    data.comfyConfig.selectedWorkflowPresetId ??= ''
+    data.comfyConfig.workflowPresets ??= data.comfyConfig.workflow ? [{
+        id: 'default',
+        name: 'Default workflow',
+        workflow: data.comfyConfig.workflow,
+    }] : []
+    for (const preset of data.comfyConfig.workflowPresets) {
+        preset.thumbnailPrompt ??= ''
+        preset.thumbnailInlayId ??= ''
+    }
+    if (data.comfyConfig.workflowPresets.length > 0 && !data.comfyConfig.workflowPresets.some((preset) => preset.id === data.comfyConfig.selectedWorkflowPresetId)) {
+        data.comfyConfig.selectedWorkflowPresetId = data.comfyConfig.workflowPresets[0].id
+    }
     data.comfyConfig.video ??= {
         enabled: false,
+        selectedWorkflowPresetId: '',
+        workflowPresets: [],
         workflow: '',
         inputImageNodeId: '32',
         inputImageField: 'image',
@@ -540,6 +559,20 @@ export function setDatabase(data:Database){
         hoverButtonDurationMs: 3000,
     }
     data.comfyConfig.video.enabled ??= false
+    data.comfyConfig.video.selectedWorkflowPresetId ??= ''
+    data.comfyConfig.video.workflowPresets ??= data.comfyConfig.video.workflow ? [{
+        id: 'default',
+        name: 'Default workflow',
+        workflow: data.comfyConfig.video.workflow,
+        inputImageNodeId: data.comfyConfig.video.inputImageNodeId ?? '32',
+        inputImageField: data.comfyConfig.video.inputImageField ?? 'image',
+        outputNodeId: data.comfyConfig.video.outputNodeId ?? '30',
+        positivePrompt: data.comfyConfig.video.positivePrompt ?? '',
+        negativePrompt: data.comfyConfig.video.negativePrompt ?? '',
+    }] : []
+    if (data.comfyConfig.video.workflowPresets.length > 0 && !data.comfyConfig.video.workflowPresets.some((preset) => preset.id === data.comfyConfig.video.selectedWorkflowPresetId)) {
+        data.comfyConfig.video.selectedWorkflowPresetId = data.comfyConfig.video.workflowPresets[0].id
+    }
     data.comfyConfig.video.workflow ??= ''
     data.comfyConfig.video.inputImageNodeId ??= '32'
     data.comfyConfig.video.inputImageField ??= 'image'
@@ -1895,8 +1928,29 @@ interface NAIVibeEncoding {
     };
 }
 
+export interface ComfyImageWorkflowPreset {
+    id: string
+    name: string
+    workflow: string
+    thumbnailPrompt?: string
+    thumbnailInlayId?: string
+}
+
+export interface ComfyVideoWorkflowPreset {
+    id: string
+    name: string
+    workflow: string
+    inputImageNodeId: string
+    inputImageField: string
+    outputNodeId: string
+    positivePrompt: string
+    negativePrompt: string
+}
+
 export interface ComfyVideoConfig {
     enabled: boolean
+    selectedWorkflowPresetId: string
+    workflowPresets: ComfyVideoWorkflowPreset[]
     workflow: string
     inputImageNodeId: string
     inputImageField: string
@@ -1908,6 +1962,8 @@ export interface ComfyVideoConfig {
 }
 
 interface ComfyConfig{
+    selectedWorkflowPresetId: string,
+    workflowPresets: ComfyImageWorkflowPreset[],
     workflow:string,
     posNodeID: string,
     posInputName:string,

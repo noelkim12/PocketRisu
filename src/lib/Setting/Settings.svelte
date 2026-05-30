@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AccessibilityIcon, ActivityIcon, PackageIcon, BotIcon, CodeIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, Sailboat, UserIcon, CircleXIcon, KeyboardIcon, SparkleIcon, TruckIcon, VideoIcon } from "@lucide/svelte";
+    import { AccessibilityIcon, ActivityIcon, PackageIcon, BotIcon, CodeIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, ImagePlusIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, Sailboat, UserIcon, CircleXIcon, KeyboardIcon, SparkleIcon, TruckIcon, VideoIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import DisplaySettings from "./Pages/DisplaySettings.svelte";
     import MigrationSettings from "./Pages/MigrationSettings.svelte";
@@ -22,6 +22,7 @@
   import { isLite } from "src/ts/lite";
     import HotkeySettings from "./Pages/HotkeySettings.svelte";
     import InlayImageGallery from "./Pages/InlayImageGallery.svelte";
+    import ComfyImageSettings from "./Pages/ComfyImageSettings.svelte";
     import ComfyVideoSettings from "./Pages/ComfyVideoSettings.svelte";
     import RemoteAccessSettings from "./Pages/RemoteAccessSettings.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
@@ -153,6 +154,15 @@
                         <span>{language.playground.inlayImageGallery}</span>
                     </button>
                     <button class="flex gap-2 items-center hover:text-textcolor"
+                        class:text-textcolor={$SettingsMenuIndex === 25}
+                        class:text-textcolor2={$SettingsMenuIndex !== 25}
+                        onclick={() => {
+                        $SettingsMenuIndex = 25
+                    }}>
+                        <ImagePlusIcon />
+                        <span>ComfyUI Image</span>
+                    </button>
+                    <button class="flex gap-2 items-center hover:text-textcolor"
                         class:text-textcolor={$SettingsMenuIndex === 24}
                         class:text-textcolor2={$SettingsMenuIndex !== 24}
                         onclick={() => {
@@ -282,6 +292,8 @@
                             <HotkeySettings/>
                         {:else if $SettingsMenuIndex === 23}
                             <InlayImageGallery/>
+                        {:else if $SettingsMenuIndex === 25}
+                            <ComfyImageSettings/>
                         {:else if $SettingsMenuIndex === 24}
                             <ComfyVideoSettings/>
                         {:else if $SettingsMenuIndex === 21}
