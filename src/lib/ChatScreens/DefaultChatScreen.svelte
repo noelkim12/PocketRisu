@@ -28,6 +28,7 @@
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset } from 'src/ts/process/files/inlays';
     import { quickMenu } from 'src/ts/hotkey';
+    import { withGenerationIndicator } from 'src/ts/generationIndicator';
 
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
@@ -412,10 +413,18 @@
         abortController = new AbortController()
         let generated = false
         try {
-            generated = await sendChat(-1, {
-                signal:abortController.signal,
-                continue:continued
-            })
+            generated = await withGenerationIndicator({
+                kind: 'text',
+                provider: 'LLM',
+                message: continued ? 'Continuing response...' : 'Generating response...',
+                detail: 'Waiting for model response',
+                doneMessage: continued ? 'Response continued' : 'Response ready',
+                failMessage: abortController.signal.aborted ? 'Response generation aborted' : 'Response generation failed',
+                isSuccess: (value) => value === true,
+            }, async () => await sendChat(-1, {
+                signal: abortController.signal,
+                continue: continued
+            }))
         } catch (error) {
             console.error(error)
             alertError(error)

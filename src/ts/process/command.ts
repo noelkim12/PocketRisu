@@ -7,6 +7,7 @@ import { risuChatParser } from "../parser/parser.svelte";
 import { sendChat } from "./index.svelte";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
+import { retainRecentMessages } from "./chatRetention";
 
 export async function processMultiCommand(command:string) {
     let pipe = ''
@@ -141,7 +142,7 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
         case 'del': {
             const size = parseInt(arg)
             if(!isNaN(size)){
-                currentChat.message = currentChat.message.slice(currentChat.message.length-size)
+                currentChat.message = retainRecentMessages(currentChat.message, size)
                 setDatabase(db)
             }
             return pipe
@@ -298,7 +299,7 @@ function commandParser(command:string, pipe:string){
     if(command.startsWith('/')){
         command = command.slice(1)
     }
-    const sliced = command.split(' ').filter((e)=>e!='')
+    const sliced = command.split(' ').filter((e)=>e !== '')
     const commandName = sliced[0]
     let argArray:string[] = []
     let namedArg:{[key:string]:string} = {}

@@ -1120,6 +1120,8 @@ export const languageEnglish = {
     preview: "Preview",
     recommended: "Recommended",
     newChat: "New Chat",
+    chatMessageRetention: "Keep recent messages",
+    chatMessageRetentionHint: "0 = unlimited. Applies after the next completed response.",
     predictedOutput: "Predicted Output",
     systemContentReplacement: "System Content Replacement",
     systemRoleReplacement: "System Role Replacement",

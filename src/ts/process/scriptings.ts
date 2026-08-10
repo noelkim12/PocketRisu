@@ -113,7 +113,6 @@ export async function runScripted(code:string, arg:{
             let declareAPI:(name: string, func:Function) => void
 
             if(ScriptingEngineState.type === 'lua'){
-                console.log('Creating new Lua engine for mode:', mode)
                 ScriptingEngineState.engine?.global.close()
                 ScriptingEngineState.code = code
                 ScriptingEngineState.engine = await luaFactory.createEngine({injectObjects: true})
@@ -123,7 +122,6 @@ export async function runScripted(code:string, arg:{
                 }
             }
             if(ScriptingEngineState.type === 'py'){
-                console.log('Creating new Pyodide context for mode:', mode)
                 ScriptingEngineState.pyodide?.close()
                 ScriptingEngineState.pyodide = new PyodideContext()
                 declareAPI = (name:string, func:Function) => {
@@ -1098,7 +1096,6 @@ export async function runScripted(code:string, arg:{
                 return ''
             })
 
-            console.log('Running Lua code:', code)
             if(ScriptingEngineState.type === 'lua'){
                 await ScriptingEngineState.engine?.doString(luaCodeWrapper(code))
             }

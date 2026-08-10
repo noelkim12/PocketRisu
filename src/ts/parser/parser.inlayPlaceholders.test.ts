@@ -19,6 +19,7 @@ vi.mock('../stores.svelte', () => ({
 
 vi.mock('../process/comfy/comfyInlayVideoVariant', () => ({
     getComfyVideoDisplayAssetId: vi.fn(() => Promise.resolve(null)),
+    getComfyVideoDisplayAssetIds: vi.fn(() => Promise.resolve({})),
     setComfyVideoDisplayAsset: vi.fn(),
 }))
 
@@ -58,6 +59,7 @@ function mockIntersectionObserver() {
 describe('resolveInlayPlaceholders', () => {
     beforeEach(() => {
         vi.restoreAllMocks()
+        vi.clearAllMocks()
     })
 
     it('ignores already-rendered inlay images so Ebook Reader does not wrap them again', () => {
@@ -107,6 +109,42 @@ describe('resolveInlayPlaceholders', () => {
         expect(constructorSpy).toHaveBeenCalledTimes(1)
         expect(observe).toHaveBeenCalledWith(placeholder)
         expect(placeholder?.hasAttribute('data-inlay-resolving')).toBe(false)
+    })
+
+    it('does not decode inlay media inside the hidden chat staging layer', async () => {
+        const { constructorSpy, observe } = mockIntersectionObserver()
+
+        const root = document.createElement('span')
+        root.setAttribute('data-risu-chatbody-layer', 'staging')
+        root.setAttribute('aria-hidden', 'true')
+        root.setAttribute('inert', '')
+        root.innerHTML = '<span data-inlay-id="staged-id" data-inlay-type="inlay"></span>'
+
+        await resolveInlayPlaceholders(root, { eager: true })
+
+        expect(constructorSpy).not.toHaveBeenCalled()
+        expect(observe).not.toHaveBeenCalled()
+        expect(root.querySelector('[data-inlay-id="staged-id"]')).not.toBeNull()
+        expect(root.querySelector('img')).toBeNull()
+    })
+
+    it('does not serialize unrelated inlays through single-item Comfy metadata reads', async () => {
+        const comfyVariants = await import('../process/comfy/comfyInlayVideoVariant')
+        const singleLookup = vi.mocked(comfyVariants.getComfyVideoDisplayAssetId)
+        const batchLookup = vi.mocked(comfyVariants.getComfyVideoDisplayAssetIds)
+        const root = document.createElement('div')
+        root.innerHTML = `
+            <span data-inlay-id="first-id" data-inlay-type="inlay"></span>
+            <span data-inlay-id="second-id" data-inlay-type="inlay"></span>
+        `
+
+        await resolveInlayPlaceholders(root, { eager: true })
+
+        expect(singleLookup).not.toHaveBeenCalled()
+        expect(batchLookup).toHaveBeenCalledOnce()
+        expect(batchLookup).toHaveBeenCalledWith(['first-id', 'second-id'])
+        expect(root.querySelector('img[data-inlay-id="first-id"]')).not.toBeNull()
+        expect(root.querySelector('img[data-inlay-id="second-id"]')).not.toBeNull()
     })
 
     it('observes valid placeholder elements even if placeholder styling classes are missing', () => {
@@ -164,7 +202,6 @@ describe('resolveInlayPlaceholders', () => {
 
         const root = document.createElement('div')
         root.innerHTML = '<div class="risu-inlay-placeholder" data-inlay-id="eager-id" data-inlay-type="inlay"></div>'
-        const placeholder = root.querySelector<HTMLElement>('.risu-inlay-placeholder')!
 
         await resolveInlayPlaceholders(root, { eager: true })
 

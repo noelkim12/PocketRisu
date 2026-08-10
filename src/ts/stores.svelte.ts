@@ -109,6 +109,7 @@ export type GenerationIndicatorJob = {
     provider: GenerationIndicatorProvider
     message: string
     detail?: string
+    startedAt: number
 }
 export type GenerationIndicatorState = {
     open: boolean

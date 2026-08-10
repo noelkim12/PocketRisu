@@ -2018,6 +2018,8 @@ export interface Chat{
     bookmarkNames?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
+    /** Positive number of newest message entries retained after a completed response. */
+    messageRetentionLimit?: number
     /** Runtime-only: true while awaiting hydration from server. Never persisted. */
     _placeholder?: boolean
 }

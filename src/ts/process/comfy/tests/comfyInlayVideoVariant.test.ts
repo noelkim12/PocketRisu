@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as inlayMeta from 'src/ts/process/files/inlayMeta'
-import { getComfyVideoDisplayAssetId, setComfyVideoDisplayAsset } from '../comfyInlayVideoVariant'
+import { getComfyVideoDisplayAssetId, getComfyVideoDisplayAssetIds, setComfyVideoDisplayAsset } from '../comfyInlayVideoVariant'
 
 vi.mock('src/ts/process/files/inlayMeta', () => ({
     getInlayMeta: vi.fn(),
+    getInlayMetasBatch: vi.fn(),
     setInlayMeta: vi.fn(),
     buildInlayMeta: vi.fn(),
 }))
@@ -89,6 +90,27 @@ describe('comfyInlayVideoVariant', () => {
 
             const result = await getComfyVideoDisplayAssetId('original-42')
             expect(result).toBeNull()
+        })
+    })
+
+    describe('getComfyVideoDisplayAssetIds', () => {
+        it('loads unique IDs once and returns only persisted display variants', async () => {
+            vi.mocked(inlayMeta.getInlayMetasBatch).mockResolvedValue({
+                'original-42': {
+                    createdAt: 1000,
+                    updatedAt: 2000,
+                    comfyVideoDisplayAssetId: 'generated-99',
+                },
+                'plain-7': {
+                    createdAt: 1000,
+                    updatedAt: 2000,
+                },
+            })
+
+            const result = await getComfyVideoDisplayAssetIds(['original-42', 'plain-7', 'original-42'])
+
+            expect(inlayMeta.getInlayMetasBatch).toHaveBeenCalledWith(['original-42', 'plain-7'])
+            expect(result).toEqual({ 'original-42': 'generated-99' })
         })
     })
 })

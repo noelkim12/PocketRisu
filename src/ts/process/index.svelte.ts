@@ -26,6 +26,7 @@ import { getModelInfo, LLMFlags } from "../model/modellist";
 import { hypaMemoryV3 } from "./memory/hypav3";
 import { getModuleAssets, getModuleToggles } from "./modules";
 import { readImage } from "../globalApi.svelte";
+import { applyMessageRetention } from "./chatRetention";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -1863,6 +1864,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
     if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
         DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+    }
+
+    const completedChat = DBState.db.characters[selectedChar].chats[selectedChat]
+    if(applyMessageRetention(completedChat)){
+        DBState.db.characters[selectedChar].reloadKeys += 1
     }
 
     return true

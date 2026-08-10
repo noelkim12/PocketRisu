@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clearGenerationIndicators, withGenerationIndicator, withNovelAIQueue } from './generationIndicator'
+import { clearGenerationIndicators, formatGenerationElapsedTime, withGenerationIndicator, withNovelAIQueue } from './generationIndicator'
 import { generationIndicatorStore } from './stores.svelte'
 
 function deferred<T>() {
@@ -102,6 +102,22 @@ describe('generation indicator provider queues', () => {
         await Promise.resolve()
 
         expect(get(generationIndicatorStore).jobs).toMatchObject([{ kind: 'text', provider: 'LLM', status: 'running' }])
+
+        pending.resolve('ok')
+        await run
+    })
+
+    it('records generation start time for elapsed indicator display', async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date('2026-06-13T00:00:00.000Z'))
+        const pending = deferred<string>()
+
+        const run = withGenerationIndicator({ kind: 'text', provider: 'AxLLM', message: 'Calling AxLLM...' }, async () => await pending.promise)
+
+        await Promise.resolve()
+
+        expect(get(generationIndicatorStore).jobs[0].startedAt).toBe(Date.now())
+        expect(formatGenerationElapsedTime(get(generationIndicatorStore).jobs[0].startedAt, Date.now() + 65_000)).toBe('1:05')
 
         pending.resolve('ok')
         await run

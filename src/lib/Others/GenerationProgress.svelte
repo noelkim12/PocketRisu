@@ -1,5 +1,16 @@
 <script lang="ts">
+    import { onMount } from 'svelte'
+    import { formatGenerationElapsedTime } from 'src/ts/generationIndicator'
     import { generationIndicatorStore } from 'src/ts/stores.svelte'
+
+    let now = $state(Date.now())
+
+    onMount(() => {
+        const timer = setInterval(() => {
+            now = Date.now()
+        }, 1000)
+        return () => clearInterval(timer)
+    })
 
     const formatKind = (kind: string) => {
         if (kind === 'video') return 'Video'
@@ -34,6 +45,15 @@
         if (failed) parts.push(`${failed} failed`)
         return parts.join(' · ')
     }
+    const elapsedDetail = () => {
+        const runningJobs = $generationIndicatorStore.jobs.filter((job) => job.status === 'queued' || job.status === 'running')
+        if (runningJobs.length === 0) {
+            return ''
+        }
+        const oldestStartedAt = Math.min(...runningJobs.map((job) => job.startedAt))
+        return `Elapsed ${formatGenerationElapsedTime(oldestStartedAt, now)}`
+    }
+    const detailText = () => [detail(), elapsedDetail()].filter(Boolean).join(' · ')
     const visualStatus = () => {
         if (countJobs('queued') + countJobs('running') > 0) return 'running'
         if (countJobs('error') > 0) return 'error'
@@ -54,7 +74,7 @@
             <span class="generation-progress-text">
                 <span class="generation-progress-title">{title()}</span>
                 <span class="generation-progress-detail">
-                    {detail()}
+                    {detailText()}
                 </span>
             </span>
         </div>

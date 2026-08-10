@@ -75,7 +75,7 @@
                     listEle.querySelectorAll('[data-risu-chat-idx]').forEach(chatEle => {
                         const idx = parseInt(chatEle.getAttribute('data-risu-chat-idx'))
                         const newChat = chara.chats[idx]
-                        if (newChats.includes(newChat) == false) {
+                        if (!newChats.includes(newChat)) {
                             if (newChat.folderId != null)
                                 newChat.folderId = null
                             newChats.push(newChat)
@@ -116,7 +116,7 @@
 
                 listEle.querySelectorAll('[data-risu-chat-idx]').forEach(chatEle => {
                     const idx = parseInt(chatEle.getAttribute('data-risu-chat-idx'))
-                    if (newChats.includes(chara.chats[idx]) == false) {
+                    if (!newChats.includes(chara.chats[idx])) {
                         newChats.push(chara.chats[idx])
                     }
                 })
@@ -143,7 +143,7 @@
                 folderStb.destroy()
             } catch (error) {}
         }
-        chatsStb.map(stb => {
+        chatsStb.forEach(stb => {
             try {
                 stb.destroy()
             } catch (error) {}
@@ -485,14 +485,40 @@
             {/if}
             {#if DBState.db.showModelInSidebar}
                 <div class="flex flex-col gap-1 mt-4">
-                    <div class="text-[11px] text-textcolor2 px-1">{language.model} / {language.submodel}</div>
+                    <div class="text-[11px] text-textcolor2 px-1">{language.model} / {language.submodel} / OtherAx</div>
                     <ModelList compact bind:value={DBState.db.aiModel} />
                     <ModelList compact bind:value={DBState.db.subModel} />
+                    <ModelList compact bind:value={DBState.db.seperateModels.otherAx} blankable />
                 </div>
             {/if}
             {#if DBState.db.showPersonaInSidebar}
                 <PersonaBind />
             {/if}
+            <label class="flex flex-col gap-1 mt-4 px-1">
+                <span class="text-[11px] text-textcolor2">{language.chatMessageRetention}</span>
+                <input
+                    class="w-full border border-darkborderc rounded-md shadow-xs text-sm text-textcolor bg-transparent px-2 py-1 focus:border-borderc focus:ring-borderc focus:ring-2 focus:outline-hidden transition-colors duration-200"
+                    type="number"
+                    inputmode="numeric"
+                    min="0"
+                    step="1"
+                    value={chara.chats[chara.chatPage]?.messageRetentionLimit ?? 0}
+                    onchange={(event) => {
+                        const currentChat = chara.chats[chara.chatPage]
+                        if (!currentChat) return
+
+                        const parsedLimit = Number(event.currentTarget.value)
+                        if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+                            currentChat.messageRetentionLimit = parsedLimit
+                        } else {
+                            delete currentChat.messageRetentionLimit
+                            event.currentTarget.value = '0'
+                        }
+                        void requestImmediateSave()
+                    }}
+                />
+                <span class="text-[10px] leading-tight text-textcolor2">{language.chatMessageRetentionHint}</span>
+            </label>
             <Toggles bind:chara={chara} noContainer />
             <ShButton className="w-full mt-2" onclick={() => {
                 const char = DBState.db.characters[$selectedCharID]

@@ -15,7 +15,7 @@ import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHash
 import { getInlayInfosBatch, setInlayAsset } from '../process/files/inlays';
 import { getModuleAssets, getModuleLorebooks, getModules } from '../process/modules';
 import { notifyError, notifySuccess } from '../alert';
-import { getComfyVideoDisplayAssetId, setComfyVideoDisplayAsset } from '../process/comfy/comfyInlayVideoVariant';
+import { getComfyVideoDisplayAssetIds, setComfyVideoDisplayAsset } from '../process/comfy/comfyInlayVideoVariant';
 import { generateComfyVideoFromBlob } from '../process/comfy/comfyVideo';
 import { wrapImageWithComfyVideoAction } from '../process/comfy/comfyVideoActions';
 import hljs from 'highlight.js/lib/core'
@@ -695,15 +695,6 @@ function createMissingInlayPlaceholder(id: string): HTMLDivElement {
     return box
 }
 
-async function resolveComfyVideoDisplayAssetId(id: string): Promise<string | null> {
-    try {
-        return await getComfyVideoDisplayAssetId(id)
-    } catch (error) {
-        console.error(`[Inlay] Failed to resolve ComfyUI display asset for ${id}`, error)
-        return null
-    }
-}
-
 function createInlayPlaceholderMarkup(id: string, inlayType: string, prefix: string, postfix: string) {
     return `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder risu-loading-spinner" style="width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.1); border-radius: 8px;"></div>${postfix}`
 }
@@ -829,7 +820,7 @@ type ResolveInlayPlaceholderOptions = {
     eager?: boolean
 }
 
-function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserver): Promise<void> {
+function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserver, processImmediately = true): Promise<void> {
     if (el.hasAttribute('data-inlay-resolving')) return inlayQueueDrainPromise ?? Promise.resolve()
 
     const id = el.getAttribute('data-inlay-id')
@@ -839,7 +830,7 @@ function enqueueInlayPlaceholder(el: HTMLElement, observer?: IntersectionObserve
     el.setAttribute('data-inlay-resolving', 'true')
     observer?.unobserve(el)
     resolveQueue.push({ el, id, type: type || 'inlay' })
-    return processInlayQueue()
+    return processImmediately ? processInlayQueue() : Promise.resolve()
 }
 
 function processInlayQueue(): Promise<void> {
@@ -879,12 +870,19 @@ function processInlayQueue(): Promise<void> {
                 }
             }
 
+            let displayAssetIds: Record<string, string> = {}
+            try {
+                displayAssetIds = await getComfyVideoDisplayAssetIds(batch.map(({ id }) => id))
+            } catch (error) {
+                console.error('[Inlay] Failed to resolve ComfyUI display assets', error)
+            }
+
             for (const { el, id } of batch) {
                 try {
                     if (!el.parentNode) continue
 
                     let cached = blobUrlCache.get(id)
-                    const displayAssetId = cached?.displayAssetId ?? await resolveComfyVideoDisplayAssetId(id)
+                    const displayAssetId = cached?.displayAssetId ?? displayAssetIds[id] ?? null
                     if (displayAssetId && (!cached || cached.type === 'image')) {
                         cached = { url: assetUrl(`inlay/${displayAssetId}`), type: 'image', displayAssetId }
                         blobUrlCache.set(id, cached)
@@ -988,12 +986,12 @@ function processInlayQueue(): Promise<void> {
 }
 
 export async function resolveInlayPlaceholders(root: HTMLElement, options: ResolveInlayPlaceholderOptions = {}): Promise<void> {
-    if (!root) return
+    if (!root || root.dataset.risuChatbodyLayer === 'staging') return
     const placeholders = Array.from(root.querySelectorAll('[data-inlay-id][data-inlay-type]:not([data-inlay-resolving])')) as HTMLElement[]
     if (placeholders.length === 0) return
 
     if (options.eager || !globalThis.IntersectionObserver) {
-        await Promise.all(placeholders.map((el) => enqueueInlayPlaceholder(el)))
+        await Promise.all(placeholders.map((el) => enqueueInlayPlaceholder(el, undefined, false))).then(processInlayQueue)
         return
     }
 

@@ -17,6 +17,23 @@ let nextGenerationIndicatorId = 0
 let novelAIQueue: Promise<void> = Promise.resolve()
 const clearTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
+/**
+ * Formats a generation job duration for compact indicator display.
+ * @param startedAt Timestamp in milliseconds when the generation job was created.
+ * @param now Current timestamp in milliseconds used to compute elapsed time.
+ * @returns Elapsed duration as m:ss or h:mm:ss text.
+ */
+export function formatGenerationElapsedTime(startedAt: number, now = Date.now()) {
+    const elapsedSeconds = Math.max(0, Math.floor((now - startedAt) / 1000))
+    const seconds = elapsedSeconds % 60
+    const minutes = Math.floor(elapsedSeconds / 60) % 60
+    const hours = Math.floor(elapsedSeconds / 3600)
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
 function updateJobs(updater: (jobs: GenerationIndicatorJob[]) => GenerationIndicatorJob[]) {
     generationIndicatorStore.update((state) => {
         const jobs = updater(state.jobs)
@@ -63,6 +80,7 @@ export function startGenerationIndicator(options: GenerationIndicatorOptions, st
         provider: options.provider,
         message: options.message,
         detail: options.detail ?? '',
+        startedAt: Date.now(),
     }])
     return id
 }

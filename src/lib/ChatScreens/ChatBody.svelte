@@ -314,7 +314,7 @@
 
         checkImg(visibleRoot)
         if (visibleRoot) {
-            void resolveInlayPlaceholders(visibleRoot)
+            void resolveInlayPlaceholders(visibleRoot, { eager: true })
         }
     }
 

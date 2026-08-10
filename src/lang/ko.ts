@@ -1114,6 +1114,8 @@ export const languageKorean = {
     "preview": "미리보기",
     "recommended": "추천",
     "newChat": "새 채팅",
+    "chatMessageRetention": "최근 메시지 보존 개수",
+    "chatMessageRetentionHint": "0 = 무제한. 다음 응답이 완료된 뒤 적용됩니다.",
     "predictedOutput": "출력 예측",
     "systemContentReplacement": "시스템 포맷 교체",
     "systemRoleReplacement": "시스템 역할 교체",

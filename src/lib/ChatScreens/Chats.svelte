@@ -1,19 +1,23 @@
 <script lang="ts">
     import type { character, Message } from 'src/ts/storage/database.svelte';
-    import { mount, onDestroy, unmount } from 'svelte';
+    import { mount, onDestroy, onMount, unmount } from 'svelte';
     import Chat from './Chat.svelte';
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, selectedCharID, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
     import { get } from 'svelte/store';
     import { scrollWithinContainer } from './scrollWithin';
+    import { observeChatViewport } from './chatViewportObserver';
     
-    const getCurrentChatRoomId = () => {
+    /** Returns a stable identity for the active character and chat page. */
+    const getCurrentChatContextKey = () => {
         const charId = get(selectedCharID);
         if (charId < 0) return null;
         const char = DBState.db.characters[charId];
         if (!char) return null;
-        return char.chats?.[char.chatPage]?.id ?? null;
+        const chat = char.chats?.[char.chatPage];
+        if (!chat) return null;
+        return `${charId}:${char.chatPage}:${chat.id ?? ''}`;
     };
 
     let {
@@ -46,6 +50,8 @@
     let hashes: Set<number> = new Set();
     let mountInstances: Map<number, {}> = new Map();
 
+    onMount(() => observeChatViewport(chatBody, { getChatContextKey: getCurrentChatContextKey }))
+
     //Non-cryptographic hash function to generate a unique hash for each message
     function hashCode(str:string):number {
         let hash = 0;
@@ -67,10 +73,10 @@
      * @returns Deterministic identity key for same-message committed HTML fallback.
      */
     function getRenderIdentityKey(message: Message, index: number): string {
-        const chatRoomId = getCurrentChatRoomId() ?? 'no-room'
+        const chatContextKey = getCurrentChatContextKey() ?? 'no-room'
         const messageId = message.chatId ?? index.toString()
         const swipeId = message.swipeId ?? 0
-        return `${currentCharacter?.chaId ?? 'no-character'}|${chatRoomId}|${messageId}|${swipeId}`
+        return `${currentCharacter?.chaId ?? 'no-character'}|${chatContextKey}|${messageId}|${swipeId}`
     }
 
     /**
@@ -130,6 +136,7 @@
             if(!hashes.has(currentHash)){
                 const b = document.createElement('div');
                 b.setAttribute('x-hashed', currentHash.toString());
+                b.dataset.chatIndex = i.toString();
                 b.classList.add('chat-message-container');
                 const swipes = message.swipes;
                 const swipeId = message.swipeId ?? 0;
@@ -227,15 +234,15 @@
     }
 
     let previousLength = 0;
-    let previousChatRoomId: string | null = null;
+    let previousChatContextKey: string | null = null;
 
     $effect(() => {
         void $ReloadChatPointer; // Make $effect track ReloadChatPointer changes
         const wasAtBottom = checkIfAtBottom();
         updateChatBody()
 
-        const currentChatRoomId = getCurrentChatRoomId();
-        const isSameChat = currentChatRoomId === previousChatRoomId;
+        const currentChatContextKey = getCurrentChatContextKey();
+        const isSameChat = currentChatContextKey === previousChatContextKey;
 
         // Only auto-scroll if it's the same chat and new messages were added
         if(isSameChat && messages.length > previousLength){
@@ -251,7 +258,7 @@
             }
         }
         previousLength = messages.length;
-        previousChatRoomId = currentChatRoomId;
+        previousChatContextKey = currentChatContextKey;
     })
 
 </script>
