@@ -10,8 +10,13 @@
 // `Settings.svelte`. Internal `Settings.svelte` switches still use the raw
 // number — that file is the source of truth and changes there should update
 // this map too.
+//
+// ⚠️ Settings search: a new page (or new sub-tab / hardcoded section) must
+// also be registered for search — declarative SettingItem arrays go in
+// src/ts/setting/searchIndex.ts (declarativeSources), hardcoded pages in
+// src/ts/setting/searchManifestData.ts. Otherwise it won't be findable.
 
-import { OtherBotSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex } from "./stores.svelte";
+import { AccessibilitySubmenuIndex, OtherBotsSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex } from "./stores.svelte";
 
 export const SettingsRoute = {
     None: -1 as const,
@@ -22,6 +27,7 @@ export const SettingsRoute = {
     Plugin: 4 as const,
     Files: 5 as const,
     Advanced: 6 as const,
+    SoundAndNotification: 7 as const,
     GlobalLoreBook: 8 as const,
     GlobalRegex: 9 as const,
     Language: 10 as const,
@@ -30,6 +36,8 @@ export const SettingsRoute = {
     Prompt: 13 as const,
     Module: 14 as const,
     Hotkey: 15 as const,
+    ModelPreset: 16 as const,
+    PromptPreset: 17 as const,
     RemoteAccess: 21 as const,
     System: 22 as const,
     InlayImageGallery: 23 as const,
@@ -45,6 +53,9 @@ export const SystemTab = {
     Dashboard: 0 as const,
     Backups: 1 as const,
     Logs: 2 as const,
+    RequestLogs: 3 as const,
+    Usage: 4 as const,
+    PluginStorage: 5 as const,
 } as const;
 
 export type SystemTabValue = (typeof SystemTab)[keyof typeof SystemTab];
@@ -59,18 +70,36 @@ export const OtherBotsTab = {
 
 export type OtherBotsTabValue = (typeof OtherBotsTab)[keyof typeof OtherBotsTab];
 
+/** Sub-tab indices inside the Accessibility settings page (mirrors the tab
+ *  order in AccessibilitySettings.svelte). */
+export const AccessibilityTab = {
+    Editing: 0 as const,
+    Scroll: 1 as const,
+    Sidebar: 2 as const,
+    Others: 3 as const,
+} as const;
+
+export type AccessibilityTabValue = (typeof AccessibilityTab)[keyof typeof AccessibilityTab];
+
 /**
  * Open the settings panel and navigate to a specific page (and optional
  * System sub-tab). Use this from anywhere in the app that needs to deep-link
  * into settings.
  */
-export function openSettings(route: SettingsRouteValue, subTab?: SystemTabValue | OtherBotsTabValue) {
+export function openSettings(
+    route: SettingsRouteValue,
+    subTab?: SystemTabValue | OtherBotsTabValue,
+    accessibilityTab?: AccessibilityTabValue,
+) {
     SettingsMenuIndex.set(route);
     if (subTab !== undefined && route === SettingsRoute.System) {
         SystemSubmenuIndex.set(subTab as SystemTabValue);
     }
     if (subTab !== undefined && route === SettingsRoute.OtherBots) {
-        OtherBotSubmenuIndex.set(subTab as OtherBotsTabValue);
+        OtherBotsSubmenuIndex.set(subTab as OtherBotsTabValue);
+    }
+    if (accessibilityTab !== undefined && route === SettingsRoute.Accessibility) {
+        AccessibilitySubmenuIndex.set(accessibilityTab);
     }
     settingsOpen.set(true);
 }

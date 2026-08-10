@@ -34,11 +34,7 @@
     User2Icon,
     ChevronsLeft,
     ArrowRight,
-    MailIcon,
-    SendIcon,
-    UsersIcon,
   } from "@lucide/svelte";
-  import GithubIcon from "../UI/GithubIcon.svelte";
     import {
   addCharacter,
     changeChar,
@@ -48,10 +44,11 @@
     import { language } from "../../lang";
     import isEqual from "lodash/isEqual";
     import SidebarAvatar from "./SidebarAvatar.svelte";
+    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import BaseRoundedButton from "../UI/BaseRoundedButton.svelte";
-    import { getCharacterIndexObject, selectSingleFile } from "src/ts/util";
+    import { getCharacterIndexObject, makeAgoText, selectSingleFile } from "src/ts/util";
     import { v4 } from "uuid";
-    import { checkCharOrder, getFileSrc, openURL, saveAsset } from "src/ts/globalApi.svelte";
+    import { checkCharOrder, getFileSrc, saveAsset } from "src/ts/globalApi.svelte";
     import { alertInput, alertSelect } from "src/ts/alert";
     import SideChatList from "./SideChatList.svelte";
 
@@ -61,6 +58,7 @@
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
   const touchDragEnabled = $derived(isTouchDevice && !DBState.db.disableMobileDragDrop);
+    import { RISU_SIDEBAR_DRAG_TYPE } from "src/ts/dragTypes";
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -78,9 +76,21 @@
   type sortTypeNormal = { type:'normal',img: string, index: number, name:string }
   type sortType =  sortTypeNormal|{type:'folder',folder:sortTypeNormal[],id:string, name:string, color:string, img?:string}
   let charImages: sortType[] = $state([]);
+  // Recently interacted characters for the home sidebar. Character-level
+  // `lastInteraction` is already in memory (no chat hydration needed), so this
+  // sort is cheap; the $derived is only read while on the home screen.
+  let recentChars = $derived(
+    DBState.db.characters
+      .map((c, index) => ({ index, name: c.name, image: c.image, lastInteraction: c.lastInteraction ?? 0 }))
+      .filter((c) => c.lastInteraction > 0)
+      .sort((a, b) => b.lastInteraction - a.lastInteraction)
+  );
+  // Progressive reveal: render `recentVisible` items, "Load more" adds 10.
+  // Avoids mounting hundreds of avatar components at once (no list virtualization).
+  let recentVisible = $state(10);
   let IconRounded = $state(false)
   let openFolders:string[] = $state([])
-  let currentDrag: DragData = $state(null)
+  let currentDrag: DragData | null = $state(null)
   interface Props {
     openGrid?: any;
     hidden?: boolean;
@@ -324,6 +334,9 @@
         db.characterOrder.splice(mainIndex.index, 1)
       }
     }
+
+    DBState.db.characterOrder = db.characterOrder
+    checkCharOrder()
   }
 
   type DragEv = DragEvent & {
@@ -335,7 +348,7 @@
   }
   const avatarDragStart = (ind:DragData, e:DragEv) => {
     e.dataTransfer.setData('text/plain', '');
-    e.dataTransfer.setData('application/x-risu-internal', 'true');
+    e.dataTransfer.setData(RISU_SIDEBAR_DRAG_TYPE, 'true');
     currentDrag = ind
     const avatar = e.currentTarget.querySelector('.avatar')
     if(avatar){
@@ -343,21 +356,60 @@
     }
   }
 
+  const clearCurrentDrag = () => {
+    currentDrag = null
+  }
+
+  $effect(() => {
+    if (typeof window === 'undefined') return
+
+    window.addEventListener('dragend', clearCurrentDrag)
+    window.addEventListener('drop', clearCurrentDrag)
+    window.addEventListener('blur', clearCurrentDrag)
+
+    return () => {
+      window.removeEventListener('dragend', clearCurrentDrag)
+      window.removeEventListener('drop', clearCurrentDrag)
+      window.removeEventListener('blur', clearCurrentDrag)
+    }
+  })
+
+  const getCurrentSidebarDrag = (e:DragEvent) => {
+    if(!currentDrag || !e.dataTransfer?.types.includes(RISU_SIDEBAR_DRAG_TYPE)){
+      return null
+    }
+    return currentDrag
+  }
+
   const avatarDragOver = (e:DragEv) => {
+    if(!getCurrentSidebarDrag(e)){
+      return
+    }
     e.preventDefault()
+    e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
   }
 
   const avatarDrop = (ind:DragData, e:DragEv) => {
+    const drag = getCurrentSidebarDrag(e)
+    if(!drag){
+      return
+    }
     e.preventDefault()
+    e.stopPropagation()
     try {
-      if(currentDrag){
-        createFolder(currentDrag,ind)
-      }
-    } catch (error) {}
+      createFolder(drag,ind)
+    } catch (error) {
+      console.error('avatarDrop error:', error)
+    } finally {
+      clearCurrentDrag()
+    }
   }
 
-  const preventAll = (e:Event) => {
+  const preventAll = (e:DragEvent) => {
+    if(!getCurrentSidebarDrag(e)){
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     return false
@@ -593,7 +645,7 @@
   {/if}
   <div class="mt-2 border-b border-b-selected w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
     {#if menuMode === 1}
-      <div class="absolute w-20 min-w-20 flex border-b-selected border-b bg-bgcolor flex-col items-center pt-2 rounded-b-md z-20 pb-2">
+      <div class="absolute w-20 min-w-20 flex border-b-selected border-b bg-bgcolor flex-col items-center pt-2 rounded-b-md z-20 pb-2 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu">
         <BarIcon
         onClick={() => {
           if ($settingsOpen) {
@@ -633,7 +685,7 @@
         }}><LayoutGridIcon /></BarIcon
       >
       {#if additionalHamburgerMenu.length > 0}
-        <div class="mt-2 h-px w-10 bg-selected"></div>
+        <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
         {#each additionalHamburgerMenu as menu}
           <div class="mt-2"></div>
           <BarIcon
@@ -650,19 +702,25 @@
     {/if}
   </div>
   {/if}
-  <div class="flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed} use:touchDragContainer>
+  <div class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed} use:touchDragContainer>
     <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index="0" ondragover={(e) => {
+      if(!getCurrentSidebarDrag(e)){ return }
       e.preventDefault()
+      e.stopPropagation()
       e.dataTransfer.dropEffect = 'move'
       e.currentTarget.classList.add('bg-green-500')
     }} ondragleave={(e) => {
       e.currentTarget.classList.remove('bg-green-500')
     }} ondrop={(e) => {
+      const drag = getCurrentSidebarDrag(e)
+      if(!drag){ return }
       e.preventDefault()
+      e.stopPropagation()
       e.currentTarget.classList.remove('bg-green-500')
-      const da = currentDrag
-      if(da){
-        inserter(da,{index:0})
+      try {
+        inserter(drag,{index:0})
+      } finally {
+        clearCurrentDrag()
       }
     }} ondragenter={preventAll}></div>
     {#each charImages as char, ind}
@@ -671,6 +729,7 @@
         data-drag-index={ind}
         draggable={!isTouchDevice ? "true" : undefined}
         ondragstart={!isTouchDevice ? (e) => {avatarDragStart({index:ind}, e)} : undefined}
+        ondragend={!isTouchDevice ? clearCurrentDrag : undefined}
         ondragover={!isTouchDevice ? avatarDragOver : undefined}
         ondrop={!isTouchDevice ? (e) => {avatarDrop({index:ind}, e)} : undefined}
         ondragenter={!isTouchDevice ? preventAll : undefined}
@@ -810,17 +869,25 @@
             'bg-darkbg/20'
           }"></div>
           <div class="h-4 min-h-4 w-14 relative z-10" role="listitem" data-spacer-index="0" data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
+            if(!getCurrentSidebarDrag(e)){ return }
             e.preventDefault()
+            e.stopPropagation()
             e.dataTransfer.dropEffect = 'move'
             e.currentTarget.classList.add('bg-green-500')
           }} ondragleave={(e) => {
             e.currentTarget.classList.remove('bg-green-500')
           }} ondrop={(e) => {
+            const drag = getCurrentSidebarDrag(e)
+            if(!drag){ return }
             e.preventDefault()
+            e.stopPropagation()
             e.currentTarget.classList.remove('bg-green-500')
-            const da = currentDrag
-            if(da && char.type === 'folder'){
-              inserter(da,{index:0,folder:char.id})
+            try {
+              if(char.type === 'folder'){
+                inserter(drag,{index:0,folder:char.id})
+              }
+            } finally {
+              clearCurrentDrag()
             }
           }} ondragenter={preventAll}></div>
           {#each char.folder as char2, ind}
@@ -830,6 +897,7 @@
               data-drag-folder={char.type === 'folder' ? char.id : undefined}
               draggable={!isTouchDevice ? "true" : undefined}
               ondragstart={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDragStart({index: ind, folder:char.id}, e)}} : undefined}
+              ondragend={!isTouchDevice ? clearCurrentDrag : undefined}
               ondragover={!isTouchDevice ? avatarDragOver : undefined}
               ondrop={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDrop({index: ind, folder:char.id}, e)}} : undefined}
               ondragenter={!isTouchDevice ? preventAll : undefined}
@@ -865,17 +933,25 @@
               </div>
             </div>
             <div class="h-4 min-h-4 w-14 relative z-20" role="listitem" data-spacer-index={ind+1} data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
+              if(!getCurrentSidebarDrag(e)){ return }
               e.preventDefault()
+              e.stopPropagation()
               e.dataTransfer.dropEffect = 'move'
               e.currentTarget.classList.add('bg-green-500')
             }} ondragleave={(e) => {
               e.currentTarget.classList.remove('bg-green-500')
             }} ondrop={(e) => {
+              const drag = getCurrentSidebarDrag(e)
+              if(!drag){ return }
               e.preventDefault()
+              e.stopPropagation()
               e.currentTarget.classList.remove('bg-green-500')
-              const da = currentDrag
-              if(da && char.type === 'folder'){
-                inserter(da,{index:ind+1,folder:char.id})
+              try {
+                if(char.type === 'folder'){
+                  inserter(drag,{index:ind+1,folder:char.id})
+                }
+              } finally {
+                clearCurrentDrag()
               }
             }} ondragenter={preventAll}></div>
           {/each}
@@ -883,17 +959,23 @@
         {/key}
       {/if}
       <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index={ind+1} ondragover={((e) => {
+        if(!getCurrentSidebarDrag(e)){ return }
         e.preventDefault()
+        e.stopPropagation()
         e.dataTransfer.dropEffect = 'move'
         e.currentTarget.classList.add('bg-green-500')
       })} ondragleave={(e) => {
         e.currentTarget.classList.remove('bg-green-500')
       }} ondrop={(e) => {
+        const drag = getCurrentSidebarDrag(e)
+        if(!drag){ return }
         e.preventDefault()
+        e.stopPropagation()
         e.currentTarget.classList.remove('bg-green-500')
-        const da = currentDrag
-        if(da){
-          inserter(da,{index:ind+1})
+        try {
+          inserter(drag,{index:ind+1})
+        } finally {
+          clearCurrentDrag()
         }
       }} ondragenter={preventAll}></div>
     {/each}
@@ -918,7 +1000,7 @@
   {#if DBState.db.hamburgerButtonBottom}
   <div class="border-t border-t-selected w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
     {#if menuMode === 1}
-      <div class="absolute bottom-full w-20 min-w-20 flex border-t-selected border-t bg-bgcolor flex-col items-center pt-2 rounded-t-md z-20 pb-2">
+      <div class="absolute bottom-full w-20 min-w-20 flex border-t-selected border-t bg-bgcolor flex-col items-center pt-2 rounded-t-md z-20 pb-2 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu">
         <BarIcon
         onClick={() => {
           if ($settingsOpen) {
@@ -958,7 +1040,7 @@
         }}><LayoutGridIcon /></BarIcon
       >
       {#if additionalHamburgerMenu.length > 0}
-        <div class="mt-2 h-px w-10 bg-selected"></div>
+        <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
         {#each additionalHamburgerMenu as menu}
           <div class="mt-2"></div>
           <BarIcon
@@ -1039,61 +1121,52 @@
   {/if}
   {#if sideBarMode === 0}
     {#if $selectedCharID < 0 || $settingsOpen}
-      <span class="block text-sm text-textcolor2 mt-2">{language.selectBotHint}</span>
-      <div class="flex flex-col gap-1.5 mt-2">
-        <button
-          type="button"
-          class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
-          onclick={() => openURL("https://github.com/PocketRisu/PocketRisu")}
-        >
-          <div class="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-selected/40 text-textcolor">
-            <GithubIcon size={18} />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-textcolor leading-tight truncate">{language.relatedGithub}</div>
-            <div class="text-xs text-textcolor2 leading-tight truncate">{language.relatedGithubDesc}</div>
-          </div>
-        </button>
-        <button
-          type="button"
-          class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
-          onclick={() => openURL("https://forms.gle/5ms5XntMrfaxmHTSA")}
-        >
-          <div class="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-selected/40 text-textcolor">
-            <SendIcon size={16} strokeWidth={1.5} />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-textcolor leading-tight truncate">{language.relatedFeedbackForm}</div>
-            <div class="text-xs text-textcolor2 leading-tight truncate">{language.relatedFeedbackFormDesc}</div>
-          </div>
-        </button>
-        <button
-          type="button"
-          class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
-          onclick={() => openURL("mailto:contact@pocketrisu.com")}
-        >
-          <div class="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-selected/40 text-textcolor">
-            <MailIcon size={16} strokeWidth={1.5} />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-textcolor leading-tight truncate">{language.relatedContactEmail}</div>
-            <div class="text-xs text-textcolor2 leading-tight truncate">{language.relatedContactEmailDesc}</div>
-          </div>
-        </button>
-        <button
-          type="button"
-          class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
-          onclick={() => openURL("https://arca.live/b/characterai")}
-        >
-          <div class="shrink-0 flex items-center justify-center w-8 h-8 rounded-md bg-selected/40 text-textcolor">
-            <UsersIcon size={16} strokeWidth={1.5} />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-textcolor leading-tight truncate">{language.relatedArcaLive}</div>
-            <div class="text-xs text-textcolor2 leading-tight truncate">{language.relatedArcaLiveDesc}</div>
-          </div>
-        </button>
+      <span class="block text-base font-semibold text-textcolor mt-2">{language.recentChatsTitle}</span>
+      <div class="flex items-center justify-between gap-2 mt-2">
+        <span class="text-sm text-textcolor2">{language.hideRecentChats}</span>
+        <ShSwitch
+          checked={!!DBState.db.nodeOnlyHideRecentChats}
+          onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
+        />
       </div>
+      {#if DBState.db.nodeOnlyHideRecentChats}
+        <!-- list hidden by user preference -->
+      {:else if recentChars.length === 0}
+        <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsDesc}</span>
+      {:else}
+        <div class="flex flex-col gap-1.5 mt-2">
+          {#each recentChars.slice(0, recentVisible) as rc (rc.index)}
+            <button
+              type="button"
+              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
+              onclick={() => changeChar(rc.index, {reseter})}
+            >
+              <div class="shrink-0">
+                <SidebarAvatar
+                  src={rc.image ? getCharImage(rc.image, "plain") : "/none.webp"}
+                  size="36"
+                  rounded={IconRounded}
+                  name={rc.name}
+                  chaId={DBState.db.characters[rc.index]?.chaId}
+                />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-textcolor leading-tight truncate">{rc.name || "Unnamed"}</div>
+                <div class="text-xs text-textcolor2 leading-tight truncate">{makeAgoText(rc.lastInteraction)}</div>
+              </div>
+            </button>
+          {/each}
+          {#if recentVisible < recentChars.length}
+            <button
+              type="button"
+              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors hover:border-borderc/30 hover:bg-selected/50 hover:text-textcolor"
+              onclick={() => recentVisible += 10}
+            >
+              {language.loadMore}
+            </button>
+          {/if}
+        </div>
+      {/if}
     {:else if DBState.db.characters[$selectedCharID]?.chaId === '§playground'}
       <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
     {:else}
@@ -1274,5 +1347,18 @@
     animation-name: sidebar-dark-closing-transition;
     animation-duration: var(--risu-animation-speed);
     background-color: rgba(0,0,0,0)
+  }
+  .hamburger-menu {
+    scrollbar-width: none;
+    overscroll-behavior: none;
+  }
+  .hamburger-menu::-webkit-scrollbar {
+    display: none;
+  }
+  .character-list {
+    scrollbar-width: none;
+  }
+  .character-list::-webkit-scrollbar {
+    display: none;
   }
 </style>

@@ -1,7 +1,9 @@
 import { changeFullscreen, checkNullish } from "./util"
+import { installDynamicViewportHeight } from "./viewportHeight"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase } from "./storage/database.svelte";
+import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset } from "./storage/database.svelte";
+import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
@@ -28,6 +30,7 @@ import {
     checkCharOrder
 } from "./globalApi.svelte";
 import { registerModelDynamic } from "./model/modellist";
+import { initModelJobRecovery } from "./process/request/jobRecovery";
 import { convertStubsToPlaceholders } from "./storage/chatStorage";
 import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelte";
 
@@ -81,6 +84,15 @@ export async function loadData() {
                 }
             }
             if (createdFreshDatabase) {
+                // Brand-new instance (no save file existed): apply the default
+                // theme preset (#0 = PocketRisu Standard) so the active display
+                // settings (zoomsize 120, iconsize, line height, etc.) match the
+                // standard theme instead of upstream's raw DB defaults. setDatabase
+                // creates this preset but never applies it. Gated on
+                // createdFreshDatabase, so migrating/updating users (who already
+                // have a database.bin) are never touched. savecurrent=false skips
+                // saving the default state back over the preset.
+                changeToThemePreset(0, false)
                 const browserLangShort = navigator.language.split('-')[0]
                 const browserLanguageMap: Record<string, string> = {
                     de: 'de',
@@ -130,6 +142,11 @@ export async function loadData() {
             updateTextThemeAndCSS()
             updateAnimationSpeed()
             updateHeightMode()
+            // Only when no explicit heightMode override is active — an explicit
+            // vh/dvh/svh/... choice must keep sizing exactly as configured.
+            if (!db.heightMode || db.heightMode === 'normal') {
+                installDynamicViewportHeight()
+            }
             updateErrorHandling()
             updateGuisize()
             if (!db.didFirstSetup) {
@@ -165,6 +182,11 @@ export async function loadData() {
             }, 5_000)
             checkRisuUpdate()
             fetchPublicStats()
+            // Server-side model-job recovery (jobRecovery.ts): slot journaled
+            // responses from disconnected generations back into their chats.
+            // Installs the return triggers (visibility / online) and runs the
+            // first pass. Fire-and-forget — never throws, no-op without jobs.
+            initModelJobRecovery()
             if (import.meta.env.VITE_RISU_TOS === 'TRUE') {
                 alertTOS().then((a) => {
                     if (a === false) {
@@ -469,6 +491,18 @@ async function checkNewFormat(): Promise<void> {
     }
     setDatabase(db);
     checkCharOrder();
+
+    // One-pass cleanup of composer drafts whose chat no longer exists (deleted
+    // chats/characters, trash purge, plugin/script removals). Replaces per-delete
+    // wiring: any orphan, however it was created, is swept here at boot.
+    const validDraftKeys = new Set<string>();
+    for (const char of db.characters) {
+        if (!char?.chaId) continue;
+        for (const chat of char.chats ?? []) {
+            if (chat?.id) validDraftKeys.add(chatDraftKey(char.chaId, chat.id));
+        }
+    }
+    void sweepOrphanDrafts(validDraftKeys);
 }
 
 /**

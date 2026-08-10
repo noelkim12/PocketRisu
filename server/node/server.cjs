@@ -12,16 +12,27 @@ const nodeCrypto = require('crypto')
 const zlib = require('zlib')
 const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
-const sharp = require('sharp')
+const Vips = require('wasm-vips')
+let _vipsPromise = null
+const getVips = () => {
+    if (!_vipsPromise) {
+        _vipsPromise = Vips().catch(err => {
+            _vipsPromise = null
+            throw err
+        })
+    }
+    return _vipsPromise
+}
 const { kvGet, kvSet, kvDel, kvList,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
-        db: sqliteDb } = require('./db.cjs');
+        gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
 const {
     addLogBatch, queryLogs, clearLogs, countLogs,
     logger, installProcessHandlers, expressErrorMiddleware,
 } = require('./logs.cjs');
+const { createRequestLogs } = require('./request-logs.cjs');
 const { applyPatch } = require('fast-json-patch');
-const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, hasRemoteBlocks } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, normalizeForwardHeaders, hasRemoteBlocks } = require('./utils.cjs');
 const { spawn, execSync } = require('child_process');
 const os = require('os');
 const { Readable, Transform } = require('stream');
@@ -114,7 +125,9 @@ const SNAPSHOT_LIMIT_MIN_COUNT = 1;
 const SNAPSHOT_LIMIT_MAX_COUNT = 100;
 const SNAPSHOT_LIMIT_MIN_BYTES = 10 * 1024 * 1024;        // 10 MB
 const SNAPSHOT_LIMIT_MAX_BYTES = 50 * 1024 * 1024 * 1024; // 50 GB
-const BACKUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const BACKUP_INTERVAL_MS = process.env.POCKETRISU_BACKUP_INTERVAL_MS
+    ? Number(process.env.POCKETRISU_BACKUP_INTERVAL_MS)
+    : 5 * 60 * 1000; // 5 minutes (override for tests to force snapshot creation)
 let lastBackupTime = null;
 
 function readSnapshotConfigInt(key, fallback, min, max) {
@@ -145,10 +158,13 @@ function getSnapshotLimits() {
 // we never end up with zero backups after a config change.
 function trimSnapshotsToLimits() {
     const { maxCount, maxBytes } = getSnapshotLimits();
-    const entries = kvListWithSizes(DB_BACKUP_PREFIX)
-        .map((it) => {
-            const tsRaw = parseInt(it.key.slice(DB_BACKUP_PREFIX.length, -4), 10);
-            return { key: it.key, size: it.size, ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
+    // Size each snapshot by its marginal disk cost (chunks not shared with the
+    // live blob), not its logical size — chunked snapshots share chunks, so a
+    // logical measure would over-trim ones that cost almost nothing on disk.
+    const entries = kvList(DB_BACKUP_PREFIX)
+        .map((key) => {
+            const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+            return { key, size: snapshotFootprint(key), ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
         })
         .sort((a, b) => b.ts - a.ts);
 
@@ -167,6 +183,23 @@ function trimSnapshotsToLimits() {
     }
     for (const key of toDelete) kvDel(key);
     return { kept: entries.length - toDelete.length, removed: toDelete.length };
+}
+
+// Current snapshot count + two totals:
+//   bytes        — marginal disk cost (snapshotFootprint), the SAME measure the
+//                  byte limit/trim uses, so the limit gauge matches what trimming
+//                  sees. kvListWithSizes would report a chunked snapshot's marker.
+//   logicalBytes — sum of each snapshot's full logical size (kvSize), i.e. what
+//                  the snapshots would cost WITHOUT dedup. Drives the "saved by
+//                  deduplication" figure; never used for trimming.
+function snapshotUsage() {
+    const keys = kvList(DB_BACKUP_PREFIX);
+    let bytes = 0, logicalBytes = 0;
+    for (const k of keys) {
+        bytes += snapshotFootprint(k);
+        logicalBytes += (kvSize(k) || 0);
+    }
+    return { count: keys.length, bytes, logicalBytes };
 }
 
 function createBackupAndRotate() {
@@ -755,6 +788,11 @@ if(!existsSync(savePath)){
 // stay where they were); only future backups land at the new path.
 const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
 const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
+const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
+// Plaintext marker the updater reads to preserve a custom in-tree backup dir
+// during in-place updates. KV lives inside the SQLite DB so the updater (which
+// runs without npm deps) can't read it; this marker bridges that gap.
+const BACKUP_PATH_MARKER = path.join(savePath, '__backup_path');
 
 function readBackupsDirConfig() {
     try {
@@ -765,11 +803,28 @@ function readBackupsDirConfig() {
     } catch { return DEFAULT_BACKUPS_DIR; }
 }
 
+function writeBackupPathMarker(absPath) {
+    try {
+        require('fs').writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
+    } catch {
+        // Best-effort; marker absence only means the updater falls back to the
+        // hard-coded `backups` keep — same as before this feature existed.
+    }
+}
+
+function isManagedBackupPath(absPath) {
+    const rel = path.relative(process.cwd(), absPath);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    if (!rel) return true;
+    return MANAGED_BACKUP_PATH_ROOTS.has(rel.split(path.sep)[0]);
+}
+
 let backupsDir = readBackupsDirConfig();
 if(!existsSync(backupsDir)){
     try { mkdirSync(backupsDir, { recursive: true }); }
     catch { backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupsDir, { recursive: true }); }
 }
+writeBackupPathMarker(backupsDir);
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
 
 const passwordPath = path.join(process.cwd(), 'save', '__password')
@@ -834,6 +889,9 @@ const CLOUDFLARED_ASSETS = {
     'darwin-x64':    { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz', type: 'tgz' },
     'linux-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64', type: 'bin' },
     'linux-arm64':   { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
+    // Termux reports process.platform === 'android' but the linux-arm64
+    // cloudflared binary (statically linked Go) runs cleanly on Bionic.
+    'android-arm64': { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
     'win32-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe', type: 'bin' },
 };
 
@@ -1288,7 +1346,7 @@ async function migrateInlaysToFilesystem() {
     await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 }
 
-async function fetchLatestRelease() {
+async function fetchLatestRelease(lang) {
     if (UPDATE_CHECK_DISABLED) return null;
     try {
         const currentVersion = getCurrentVersion();
@@ -1298,6 +1356,7 @@ async function fetchLatestRelease() {
             os: `${process.platform}-${process.arch}`,
             id: instanceId,
         });
+        if (lang) params.set('l', String(lang).slice(0, 16));
         const url = `${UPDATE_CHECK_URL}?${params}`;
         const res = await fetch(url);
         if (!res.ok) return null;
@@ -1385,15 +1444,24 @@ async function checkDiskSpace(requiredBytes) {
 
 // ── Active writer session (single-writer lock) ────────────────────────────────
 // Mirrors the BroadcastChannel-based tab lock on the server side so that the
-// same protection extends across devices. The last client to call /api/session
-// becomes the active writer; older sessions receive 423 on write attempts.
-let activeSessionId = null // string | null
+// same protection extends across devices. Lock rules live in session-lock.cjs:
+// page loads REGISTER but never steal the lock (an OS-restored phone tab must
+// not kick a PC mid-session); ownership moves on the first WRITE from a
+// freshly-booted session, and only stale sessions get 423.
+const { createSessionLock } = require('./session-lock.cjs');
+const sessionLock = createSessionLock();
 
 function checkActiveSession(req, res) {
     const clientSessionId = req.headers['x-session-id']
-    if (!clientSessionId) return true  // client without session support
-    if (!activeSessionId) return true  // no session registered yet
-    if (clientSessionId === activeSessionId) return true
+    // The client attaches x-user-active only when a real user gesture happened
+    // recently — automatic writes (boot housekeeping, flush-on-hide) carry no
+    // gesture and must never move the lock (session-lock.cjs rules).
+    const userActive = req.headers['x-user-active'] === '1'
+    const result = sessionLock.checkWrite(typeof clientSessionId === 'string' ? clientSessionId : '', userActive)
+    if (result.tookOver) {
+        console.log('[Session] Write lock taken over by a freshly-booted session')
+    }
+    if (result.ok) return true
     res.status(423).json({ error: 'Session deactivated' })
     return false
 }
@@ -1568,25 +1636,7 @@ function sanitizeTargetUrl(raw) {
 }
 
 // --- Proxy Stream: request/response helpers ---
-
-function normalizeForwardHeaders(input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-        return {};
-    }
-    const normalized = {};
-    for (const [key, value] of Object.entries(input)) {
-        if (typeof key !== 'string') continue;
-        if (typeof value === 'string') {
-            normalized[key] = value;
-        }
-    }
-    delete normalized['risu-auth'];
-    delete normalized['risu-timeout-ms'];
-    delete normalized['host'];
-    delete normalized['connection'];
-    delete normalized['content-length'];
-    return normalized;
-}
+// normalizeForwardHeaders (the shared security strip-list) lives in utils.cjs.
 
 function normalizeProxyResponseHeaders(headers) {
     const normalized = {};
@@ -1912,10 +1962,21 @@ function parseInlaySidecarBackupName(name) {
     return { id };
 }
 
+// Upstream (#1484) writes cold storage backup entries as flat
+// coldstorage_<uuid>.json names; older backups and the runtime KV use
+// coldstorage/<uuid>. Match upstream's UUID pattern for the flat form so
+// ordinary assets that merely start with "coldstorage_" are not captured.
+const COLD_STORAGE_FLAT_NAME_RE = /^coldstorage_([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\.json)?$/;
+
 function normalizeColdStorageStorageKey(nameOrKey) {
     let key = nameOrKey;
     if (key.startsWith('coldstorage/')) {
         key = key.slice('coldstorage/'.length);
+    } else {
+        const flat = COLD_STORAGE_FLAT_NAME_RE.exec(key);
+        if (flat) {
+            key = flat[1];
+        }
     }
     if (key.endsWith('.json')) {
         key = key.slice(0, -'.json'.length);
@@ -2050,9 +2111,10 @@ function resolveBackupStorageKey(name) {
         return name;
     }
 
-    // Upstream backups transport cold storage as coldstorage/<uuid>.json.
+    // Upstream backups transport cold storage as coldstorage/<uuid>.json
+    // (pre-#1484) or flat coldstorage_<uuid>.json (#1484 onwards).
     // Normalize back to the runtime KV key: coldstorage/<uuid>.
-    if (name.startsWith('coldstorage/')) {
+    if (name.startsWith('coldstorage/') || COLD_STORAGE_FLAT_NAME_RE.test(name)) {
         return normalizeColdStorageStorageKey(name);
     }
 
@@ -2155,6 +2217,9 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
     kvDelPrefix('inlay_meta/');
     kvDelPrefix('inlay_info/');
     kvDelPrefix('coldstorage/');
+    // Composer drafts are session/device-local and not carried in the backup;
+    // wipe stale ones so an old snapshot's chats don't resurrect later drafts.
+    kvDelPrefix('drafts/');
     // Same reasoning as clearExistingData (save-folder import path): wipe stale
     // remote payloads from the prior user before this backup's contents land.
     // .bin backups never carry REMOTE blocks today, so the migration won't
@@ -2529,6 +2594,10 @@ const reverseProxyFunc = async (req, res, next) => {
         head.delete('clear-site-data');
         head.delete('Cache-Control');
         head.delete('Content-Encoding');
+        // Node's fetch already decompressed the body, so the upstream
+        // (compressed) Content-Length no longer matches and would truncate the
+        // response. Drop it and let the body stream out chunked.
+        head.delete('Content-Length');
         const headObj = {};
         for (let [k, v] of head) {
             headObj[k] = v;
@@ -2608,6 +2677,10 @@ const reverseProxyFunc_get = async (req, res, next) => {
         head.delete('clear-site-data');
         head.delete('Cache-Control');
         head.delete('Content-Encoding');
+        // Node's fetch already decompressed the body, so the upstream
+        // (compressed) Content-Length no longer matches and would truncate the
+        // response. Drop it and let the body stream out chunked.
+        head.delete('Content-Length');
         const headObj = {};
         for (let [k, v] of head) {
             headObj[k] = v;
@@ -2807,6 +2880,8 @@ app.post('/proxy', reverseProxyFunc);
 app.post('/proxy2', reverseProxyFunc);
 app.put('/proxy', reverseProxyFunc);
 app.put('/proxy2', reverseProxyFunc);
+app.patch('/proxy', reverseProxyFunc);
+app.patch('/proxy2', reverseProxyFunc);
 app.delete('/proxy', reverseProxyFunc);
 app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*', hubProxyFunc);
@@ -2876,6 +2951,15 @@ app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
     res.send({ success: true });
 });
 
+// --- Model Job endpoints (durable server-side model-preset relay) ---
+// Recorder pattern: the server makes the provider request, streams the bytes
+// to the client unchanged, and journals the same bytes to disk so a client
+// that disconnects mid-generation can recover the response. All logic lives
+// in model-jobs.cjs; registers /api/model-jobs* with /proxy2-level auth.
+const { createModelJobs } = require('./model-jobs.cjs');
+const modelJobs = createModelJobs({ saveDir: savePath, logger });
+modelJobs.registerRoutes(app, { auth: checkProxyAuth });
+
 // app.get('/api/password', async(req, res)=> {
 //     if(password === ''){
 //         res.send({status: 'unset'})
@@ -2926,15 +3010,25 @@ app.post('/api/token/refresh', async (req, res) => {
     res.json({ token: createServerJwt() })
 })
 
+// Reload-on-return check: side-effect-free writer-lock state for this session.
+// The client calls it when the tab regains visibility/focus and reloads ONLY
+// on 'stale' — before the user has done anything, so nothing is lost.
+app.get('/api/session/lock-status', async (req, res) => {
+    if (!await checkAuth(req, res)) return
+    const id = req.headers['x-session-id']
+    res.json({ state: sessionLock.peek(typeof id === 'string' ? id : '') })
+})
+
 // ── Session cookie issuance (F-0) ──────────────────────────────────────────
 // Called once after JWT auth succeeds. Issues a long-lived cookie so that
 // <img src="/api/asset/..."> requests can be authenticated without JS.
 app.post('/api/session', async (req, res) => {
     if (!await checkAuth(req, res)) return
     const clientSessionId = req.headers['x-session-id']
-    if (clientSessionId) {
-        activeSessionId = clientSessionId
-        console.log('[Session] Active writer session updated')
+    if (typeof clientSessionId === 'string') {
+        // Registers the boot; takes the lock only if nobody holds it.
+        sessionLock.register(clientSessionId)
+        console.log('[Session] Session boot registered')
     }
     const token = nodeCrypto.randomBytes(32).toString('hex')
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
@@ -2996,10 +3090,17 @@ const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
 async function generateThumbnail(buffer) {
-    return sharp(buffer)
-        .resize(THUMB_MAX_SIDE, THUMB_MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: THUMB_QUALITY })
-        .toBuffer();
+    const vips = await getVips()
+    const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
+        height: THUMB_MAX_SIDE,
+        size: 'down',
+    })
+    try {
+        const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
+        return Buffer.from(out);
+    } finally {
+        img.delete()
+    }
 }
 
 app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
@@ -3077,6 +3178,93 @@ app.post('/api/crypto', async (req, res) => {
         res.send(hash.digest('hex'))
     } catch (error) {
         res.status(500).send({ error: 'Crypto operation failed' });
+    }
+})
+
+// Vertex / google-service-account access tokens. The browser cannot sign the
+// RS256 JWT itself: crypto.subtle needs a Secure Context that HTTP remote
+// access lacks, and node:crypto isn't in the client bundle. So the client
+// forwards the SA JSON here and the server signs + exchanges it. Google's token
+// response is forwarded verbatim so the client maps statuses unchanged.
+// Never log the SA JSON / private key / assertion / OAuth body.
+const GOOGLE_OAUTH_TOKEN_URI = 'https://oauth2.googleapis.com/token'
+app.post('/api/model-preset/google-service-account/token', async (req, res) => {
+    if (!await checkAuth(req, res)) return
+    try {
+        const serviceAccountJson = req.body && req.body.serviceAccountJson
+        const scope = (req.body && typeof req.body.scope === 'string' && req.body.scope.length > 0)
+            ? req.body.scope
+            : 'https://www.googleapis.com/auth/cloud-platform'
+        if (typeof serviceAccountJson !== 'string' || serviceAccountJson.length === 0) {
+            res.status(400).send({ error: 'serviceAccountJson required' })
+            return
+        }
+        let sa
+        try {
+            sa = JSON.parse(serviceAccountJson)
+        } catch {
+            res.status(400).send({ error: 'invalid service account JSON' })
+            return
+        }
+        const clientEmail = sa && sa.client_email
+        const privateKey = sa && sa.private_key
+        const kid = sa && sa.private_key_id
+        const tokenUri = (sa && typeof sa.token_uri === 'string' && sa.token_uri.length > 0)
+            ? sa.token_uri
+            : GOOGLE_OAUTH_TOKEN_URI
+        if (typeof clientEmail !== 'string' || typeof privateKey !== 'string') {
+            res.status(400).send({ error: 'service account missing client_email / private_key' })
+            return
+        }
+        // SSRF / signed-JWT exfiltration guard: only Google's documented endpoint.
+        if (tokenUri !== GOOGLE_OAUTH_TOKEN_URI) {
+            res.status(400).send({ error: 'unsupported token_uri' })
+            return
+        }
+        const nowSec = Math.floor(Date.now() / 1000)
+        const header = { alg: 'RS256', typ: 'JWT' }
+        if (typeof kid === 'string' && kid.length > 0) header.kid = kid
+        const payload = { iss: clientEmail, scope, aud: tokenUri, iat: nowSec, exp: nowSec + 3600 }
+        const signingInput =
+            `${Buffer.from(JSON.stringify(header)).toString('base64url')}.` +
+            `${Buffer.from(JSON.stringify(payload)).toString('base64url')}`
+        let signature
+        try {
+            const signer = nodeCrypto.createSign('RSA-SHA256')
+            signer.update(signingInput)
+            signer.end()
+            signature = signer.sign(privateKey).toString('base64url')
+        } catch {
+            res.status(400).send({ error: 'failed to sign with the provided private key' })
+            return
+        }
+        const assertion = `${signingInput}.${signature}`
+
+        let googleRes
+        try {
+            googleRes = await fetch(tokenUri, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Accept: 'application/json',
+                },
+                body: new URLSearchParams({
+                    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    assertion,
+                }).toString(),
+            })
+        } catch {
+            res.status(502).send({ error: 'OAuth token endpoint unreachable' })
+            return
+        }
+
+        // Forward Google's status + body verbatim (client maps errors).
+        const text = await googleRes.text().catch(() => '')
+        const contentType = googleRes.headers.get('content-type')
+        if (contentType) res.set('content-type', contentType)
+        res.status(googleRes.status).send(text)
+    } catch {
+        res.status(500).send({ error: 'service account token exchange failed' })
     }
 })
 
@@ -3279,6 +3467,13 @@ app.delete('/api/logs', async (req, res, next) => {
     }
 });
 
+// ─── /api/request-logs — provider request log + token usage statistics ───────
+// Own SQLite file (save/request-logs.db) with its own rotation policy; see
+// server/node/request-logs.cjs. Registered with the same auth the /api/logs
+// endpoints use.
+const requestLogs = createRequestLogs({ saveDir: savePath });
+requestLogs.registerRoutes(app, { auth: checkAuth, activeSession: checkActiveSession });
+
 app.post('/api/write', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
@@ -3400,8 +3595,11 @@ app.post('/api/write', async (req, res, next) => {
     }
 });
 
+// NOT session-locked: flush carries no data — it only asks the server to
+// fsync what it already has. It fires automatically on tab-hide from EVERY
+// device, so gating it on the write lock made a phone going to background
+// steal (or trip over) the lock without any user action.
 app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
-    if (!checkActiveSession(req, res)) return;
     try {
         await queueStorageOperation(async () => {
             await flushPendingDb();
@@ -3676,6 +3874,103 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
     } catch(error){ next(error); }
 });
 
+// ── Settings-only export ────────────────────────────────────────────────────
+//
+// Multi-instance setups are a common PocketRisu pattern, and re-entering every
+// setting by hand on each new instance is the pain this removes. A settings-only
+// backup is the full backup minus characters, chats and inlay images: modules,
+// plugins, prompt presets, personas, lorebooks, theme and API keys all travel.
+//
+// Restore stays the ordinary full-replace import — the target is a fresh
+// instance, so there is no merge path involved.
+
+/**
+ * Trims a decoded database object down to settings only.
+ *
+ * Chats live inside `characters[].chats`, so dropping characters drops chats
+ * with them. `characterOrder` has to go too, or the restored instance keeps
+ * folders pointing at character ids that no longer exist.
+ */
+function stripToSettingsOnly(dbObj) {
+    return {
+        ...dbObj,
+        characters: [],
+        characterOrder: [],
+    };
+}
+
+/**
+ * Works out what a settings-only export would ship.
+ *
+ * Shared by the export endpoint and the estimate endpoint so the number shown
+ * in the confirm dialog can't drift from the file the user actually gets.
+ *
+ * Module assets are reported separately because they dominate the size for
+ * anyone using asset-pack modules — several GB against a handful of MB for
+ * everything else — and that is the one call worth putting to the user.
+ * Note the marginal cost is computed as (all − withoutModules), so an asset a
+ * module shares with, say, a persona icon is never billed to the module and
+ * never dropped when module assets are excluded.
+ */
+async function buildSettingsOnlyPlan({ includeModuleAssets = true } = {}) {
+    const raw = kvGet('database/database.bin');
+    if (!raw) return null;
+
+    // Plain decodeRisuSave, not decodeDatabaseWithPersistentChatIds: that
+    // variant runs chat-id and cold-storage migrations and can persist. Both
+    // concern data we are about to drop anyway.
+    const trimmed = stripToSettingsOnly(await decodeRisuSave(raw));
+    const dbValue = Buffer.from(encodeRisuSaveLegacy(trimmed, 'compression'));
+
+    const withModules = buildUncleanableSet(trimmed);
+    const withoutModules = buildUncleanableSet(trimmed, { includeModuleAssets: false });
+    const keepNames = includeModuleAssets ? withModules : withoutModules;
+
+    let baseCount = 0, baseBytes = 0, moduleCount = 0, moduleBytes = 0;
+    for (const entry of kvListWithSizes('assets/')) {
+        const name = path.basename(entry.key);
+        if (withoutModules.has(name)) {
+            baseCount++;
+            baseBytes += entry.size;
+        } else if (withModules.has(name)) {
+            moduleCount++;
+            moduleBytes += entry.size;
+        }
+    }
+
+    const modulesWithAssets = (trimmed.modules ?? [])
+        .filter((m) => Array.isArray(m?.assets) && m.assets.length > 0).length;
+
+    return {
+        trimmed,
+        dbValue,
+        keepNames,
+        breakdown: {
+            dbBytes: dbValue.length,
+            baseAssets: { count: baseCount, bytes: baseBytes },
+            moduleAssets: { count: moduleCount, bytes: moduleBytes, moduleCount: modulesWithAssets },
+        },
+    };
+}
+
+// Size breakdown for the settings-only confirm dialog. Kept separate from
+// /api/db/stats because it has to decode and re-encode the DB, which that
+// dashboard poll should not pay for on every load.
+app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
+    if (!await checkAuth(req, res)) { return; }
+    try {
+        await flushPendingDb();
+        const plan = await buildSettingsOnlyPlan({ includeModuleAssets: true });
+        if (!plan) {
+            res.status(500).json({ error: 'database.bin missing' });
+            return;
+        }
+        res.json(plan.breakdown);
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
@@ -3685,9 +3980,34 @@ app.get('/api/backup/export', async (req, res, next) => {
         // fails with ENOENT. The export becomes lossy on inlay images but
         // imports cleanly into upstream.
         const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
+        // ?mode=settings drops characters, chats and inlay images — see
+        // buildSettingsOnlyPlan above. &moduleAssets=0 additionally leaves out
+        // asset-pack module images, which is where the bulk usually lives.
+        const settingsOnly = req.query.mode === 'settings';
+        const includeModuleAssets = req.query.moduleAssets !== '0';
         // Flush any pending patches to ensure export includes latest data
         await flushPendingDb();
-        const inlayFiles = target === 'upstream' ? [] : await listInlayFiles();
+
+        // Settings-only re-encodes a trimmed DB up front: its byte length is
+        // needed for content-length, and the trimmed object drives the asset
+        // filter below. Safe to hold in memory — with characters gone this is
+        // orders of magnitude smaller than the live blob.
+        let settingsDbValue = null;
+        let settingsAssetNames = null;
+        if (settingsOnly) {
+            const plan = await buildSettingsOnlyPlan({ includeModuleAssets });
+            if (!plan) {
+                res.status(500).json({ error: 'database.bin missing' });
+                return;
+            }
+            settingsDbValue = plan.dbValue;
+            settingsAssetNames = plan.keepNames;
+        }
+
+        // Inlay images only ever attach to chat messages, so a settings-only
+        // export skips those namespaces for the same reason upstream does.
+        const skipInlay = settingsOnly || target === 'upstream';
+        const inlayFiles = skipInlay ? [] : await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
             return {
@@ -3713,7 +4033,7 @@ app.get('/api/backup/export', async (req, res, next) => {
                 return null;
             }
         }));
-        const inlayMetaEntries = target === 'upstream' ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
+        const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
             kind: 'kv',
             key: entry.key,
             backupName: entry.key,
@@ -3721,26 +4041,38 @@ app.get('/api/backup/export', async (req, res, next) => {
             size: entry.size,
         }));
         const namespacedEntries = [
-            ...kvListWithSizes('assets/').map((entry) => ({
-                kind: 'kv',
-                key: entry.key,
-                backupName: path.basename(entry.key),
-                sortKey: entry.key,
-                size: entry.size,
-            })),
-            ...listColdStorageBackupEntries(),
+            ...kvListWithSizes('assets/')
+                // Settings-only keeps just the assets the trimmed DB still
+                // points at — persona icons, theme background, notification
+                // sounds, module assets. Character art falls out here, which is
+                // what actually shrinks the file.
+                .filter((entry) => !settingsAssetNames || settingsAssetNames.has(path.basename(entry.key)))
+                .map((entry) => ({
+                    kind: 'kv',
+                    key: entry.key,
+                    backupName: path.basename(entry.key),
+                    sortKey: entry.key,
+                    size: entry.size,
+                })),
+            // Cold storage holds character payloads only — nothing left to carry
+            // once characters are stripped.
+            ...(settingsOnly ? [] : listColdStorageBackupEntries()),
             ...inlayMetaEntries,
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-        const dbSize = kvSize('database/database.bin');
+        const dbSize = settingsOnly ? settingsDbValue.length : kvSize('database/database.bin');
         const totalBytes = namespacedEntries.reduce((sum, entry) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
         }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
 
-        const filenameSuffix = target === 'upstream' ? '-upstream' : '';
+        // Settings-only files get their own name — they are kept around and
+        // reused across instances, so they have to be tellable apart from a full
+        // backup months later.
+        const filenameBase = settingsOnly ? 'risu-settings' : 'risu-backup';
+        const filenameSuffix = settingsOnly ? '' : target === 'upstream' ? '-upstream' : '';
         res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="risu-backup-${Date.now()}${filenameSuffix}.bin"`);
+        res.setHeader('content-disposition', `attachment; filename="${filenameBase}-${Date.now()}${filenameSuffix}.bin"`);
         res.setHeader('content-length', totalBytes);
         res.setHeader('x-risu-backup-assets', namespacedEntries.length);
 
@@ -3778,7 +4110,7 @@ app.get('/api/backup/export', async (req, res, next) => {
         }
 
         if (!closed && dbSize) {
-            const dbValue = kvGet('database/database.bin');
+            const dbValue = settingsOnly ? settingsDbValue : kvGet('database/database.bin');
             if (dbValue) {
                 const ok = res.write(encodeBackupEntry('database.risudat', dbValue));
                 if (!ok) {
@@ -4486,6 +4818,8 @@ function clearExistingData() {
     kvDelPrefix('inlay_thumb/');
     kvDelPrefix('inlay_meta/');
     kvDelPrefix('inlay_info/');
+    // Composer drafts aren't part of a save folder; clear stale ones on import.
+    kvDelPrefix('drafts/');
     // Drop the previous user's remote payloads. The new save folder usually
     // brings its own remotes/<id>.local.bin files (INSERT OR REPLACE), but if
     // the imported character ids reuse names from the prior user without
@@ -4493,6 +4827,10 @@ function clearExistingData() {
     // stitch in stale cross-user data. Wiping here ensures only payloads
     // that arrived in this import survive.
     kvDelPrefix('remotes/');
+    // Cold-storage rows belong to the previous user's chats. The .bin import path
+    // (importBackupFromSource) already clears these; the save-folder path did not,
+    // leaving orphans that no dashboard or Optimize pass ever reclaims.
+    kvDelPrefix('coldstorage/');
     // Clear remote-block migration marker — newly imported database.bin may
     // contain REMOTE blocks (it usually does, since save-folder imports
     // preserve upstream's split-character format) and we want the migration
@@ -4520,6 +4858,9 @@ async function importHexFilesFromDir(dirPath) {
         for (const hexFile of hexFiles) {
             const key = Buffer.from(hexFile, 'hex').toString('utf-8');
             const value = readFileSync(path.join(dirPath, hexFile));
+            // Chunk the DB blob so an oversized database.bin imports instead of
+            // failing the BLOB bind limit; other keys keep the bulk fast path.
+            if (key === DB_BLOB_KEY) { kvSet(key, value); continue; }
             insert.run(key, value, now);
         }
     });
@@ -4546,6 +4887,9 @@ async function importHexEntries(entries) {
     const run = sqliteDb.transaction(() => {
         clearExistingData();
         for (const { key, value } of entries) {
+            // Chunk the DB blob so an oversized database.bin imports instead of
+            // failing the BLOB bind limit; other keys keep the bulk fast path.
+            if (key === DB_BLOB_KEY) { kvSet(key, value); continue; }
             insert.run(key, value, now);
         }
     });
@@ -4718,16 +5062,30 @@ app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
 const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const ASSET_PREFIXES = ['assets/', 'remotes/', 'inlay/', 'inlay_thumb/', 'inlay_meta/', 'inlay_info/', 'coldstorage/'];
-// Slightly above 2GB BLOB ceiling — better-sqlite3 throws RangeError near INT_MAX.
-const BLOB_INT_MAX = 2 * 1024 * 1024 * 1024 - 1;
 
 function statsBasename(s) {
     if (!s) return '';
     return String(s).replace(/\\/g, '/').split('/').pop();
 }
 
-// Mirrors src/ts/globalApi.svelte.ts:getUncleanables — every asset reference reachable from the DB.
-function buildUncleanableSet(dbObj) {
+// Every asset reference reachable from the DB. Mirrors
+// src/ts/globalApi.svelte.ts:getUncleanables, plus the settings-level image-gen
+// references that walker misses (NAIImgConfig, wavespeedImage).
+//
+// Two consumers: dashboard orphan stats, and picking which assets a
+// settings-only backup carries. A miss here silently drops an asset from the
+// seed backup, so err toward including a field.
+//
+// Deliberately absent: botPresets[].image and modules[].backgroundEmbedding.
+// The former is an inline data URI (canvas.toDataURL), the latter is HTML —
+// neither is a stored asset, so both ride along inside database.bin.
+//
+// `includeModuleAssets: false` omits modules[].assets (and the same array on a
+// persona's embedded module). Asset-pack modules routinely carry thousands of
+// images — several GB is normal — so a settings-only export offers to leave
+// them behind. Module *icons* are not gated: they are tiny and part of the
+// module's identity in the list UI.
+function buildUncleanableSet(dbObj, { includeModuleAssets = true } = {}) {
     const set = new Set();
     const add = (v) => {
         const bn = statsBasename(v);
@@ -4736,6 +5094,15 @@ function buildUncleanableSet(dbObj) {
     if (!dbObj) return set;
     add(dbObj.customBackground);
     add(dbObj.userIcon);
+    // Notification sounds. Bundled-preset values (e.g. "bell") are not asset
+    // paths and just add a basename that matches no stored asset.
+    add(dbObj.messageSound);
+    add(dbObj.translateSound);
+    if (Array.isArray(dbObj.customSounds)) for (const s of dbObj.customSounds) add(s?.path);
+    // Image-gen reference images hang off settings, not off a character.
+    add(dbObj.NAIImgConfig?.character_image);
+    add(dbObj.NAIImgConfig?.image);
+    add(dbObj.wavespeedImage?.reference_image);
     if (Array.isArray(dbObj.characters)) {
         for (const cha of dbObj.characters) {
             if (!cha) continue;
@@ -4747,9 +5114,19 @@ function buildUncleanableSet(dbObj) {
         }
     }
     if (Array.isArray(dbObj.modules)) {
-        for (const m of dbObj.modules) if (Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
+        for (const m of dbObj.modules) {
+            if (includeModuleAssets && Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
+            add(m?.icon);
+        }
     }
-    if (Array.isArray(dbObj.personas)) for (const p of dbObj.personas) add(p?.icon);
+    if (Array.isArray(dbObj.personas)) {
+        for (const p of dbObj.personas) {
+            add(p?.icon);
+            const embedded = p?.embeddedModule;
+            if (includeModuleAssets && Array.isArray(embedded?.assets)) for (const a of embedded.assets) add(a?.[1]);
+            add(embedded?.icon);
+        }
+    }
     if (Array.isArray(dbObj.characterOrder)) {
         for (const item of dbObj.characterOrder) {
             if (item && typeof item === 'object' && 'imgFile' in item) add(item.imgFile);
@@ -4849,6 +5226,15 @@ app.get('/api/db/stats', async (req, res, next) => {
 
         const dbBlobSize = kvSize(DB_BLOB_KEY) || 0;
 
+        // Physical storage of the chunked DB blob (and all snapshots, which share
+        // chunks). This is where the blob bytes actually live post-chunking — kv
+        // holds only a tiny marker, so the chart must count this table separately.
+        const chunkStat = sqliteDb.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(LENGTH(data)), 0) AS b FROM chunks').get();
+        // Bytes the next gc() would reclaim (true orphans + chunks pinned only by
+        // stale/raw-overwritten manifests) — drives the Optimize button.
+        const orphanChunkBytes = reclaimableChunkBytes();
+        const liveChunked = isDbBlobChunked();
+
         // Prefix breakdown — split database/ into the live blob vs rotated backups.
         const prefixes = {};
         prefixes[DB_BLOB_KEY] = { totalSize: dbBlobSize, count: dbBlobSize > 0 ? 1 : 0 };
@@ -4927,7 +5313,7 @@ app.get('/api/db/stats', async (req, res, next) => {
             disk,
             backupDisk,
             sqlite: { pageSize, pageCount, freelistCount, reclaimable, journalMode, autoVacuum },
-            blob: { dbSize: dbBlobSize, intMax: BLOB_INT_MAX },
+            chunks: { count: chunkStat.c, bytes: chunkStat.b, orphanBytes: orphanChunkBytes, liveChunked },
             prefixes,
             kvRows,
             kvTotalBytes,
@@ -5115,6 +5501,11 @@ app.post('/api/db/optimize', async (req, res, next) => {
         const result = await queueStorageOperation(async () => {
             await flushPendingDb();
             const t0 = Date.now();
+            // Reclaim chunks orphaned by edits/snapshot rotation before VACUUM, so
+            // their pages get compacted in the same pass. Serialized with saves by
+            // the surrounding queueStorageOperation.
+            let gcDeleted = 0;
+            try { gcDeleted = gcChunks(); } catch (e) { logger.warn('[Optimize] chunk gc failed:', e?.message || e); }
             try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] checkpoint failed:', e?.message || e); }
             sqliteDb.exec('VACUUM');
             // VACUUM streams the whole DB through the WAL; without this checkpoint the
@@ -5128,6 +5519,7 @@ app.post('/api/db/optimize', async (req, res, next) => {
                 preDbSize,
                 postDbSize,
                 reclaimed: Math.max(0, preDbSize - postDbSize),
+                chunksReclaimed: gcDeleted,
             };
         });
         res.json(result);
@@ -5166,13 +5558,13 @@ app.get('/api/db/snapshots/limits', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
         const { maxCount, maxBytes } = getSnapshotLimits();
-        const items = kvListWithSizes(DB_BACKUP_PREFIX);
-        const currentBytes = items.reduce((s, it) => s + it.size, 0);
+        const usage = snapshotUsage();
         res.json({
             maxCount,
             maxBytes,
-            currentCount: items.length,
-            currentBytes,
+            currentCount: usage.count,
+            currentBytes: usage.bytes,
+            logicalBytes: usage.logicalBytes,
             bounds: {
                 minCount: SNAPSHOT_LIMIT_MIN_COUNT,
                 maxCount: SNAPSHOT_LIMIT_MAX_COUNT,
@@ -5204,12 +5596,12 @@ app.put('/api/db/snapshots/limits', async (req, res, next) => {
         kvSet(SNAPSHOT_LIMIT_COUNT_KEY, Buffer.from(String(maxCount), 'utf-8'));
         kvSet(SNAPSHOT_LIMIT_BYTES_KEY, Buffer.from(String(maxBytes), 'utf-8'));
         const trim = trimSnapshotsToLimits();
-        const items = kvListWithSizes(DB_BACKUP_PREFIX);
-        const currentBytes = items.reduce((s, it) => s + it.size, 0);
+        const usage = snapshotUsage();
         res.json({
             maxCount, maxBytes,
-            currentCount: items.length,
-            currentBytes,
+            currentCount: usage.count,
+            currentBytes: usage.bytes,
+            logicalBytes: usage.logicalBytes,
             removed: trim.removed,
         });
     } catch (err) { next(err); }
@@ -5218,11 +5610,16 @@ app.put('/api/db/snapshots/limits', async (req, res, next) => {
 app.get('/api/db/snapshots', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
-        const items = kvListWithSizes(DB_BACKUP_PREFIX);
-        const out = items.map((it) => {
-            const tsRaw = parseInt(it.key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+        const out = kvList(DB_BACKUP_PREFIX).map((key) => {
+            const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
             const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
-            return { key: it.key, size: it.size, timestamp: ts };
+            // Logical size — the full data this snapshot represents (the whole DB),
+            // not its marginal on-disk cost. Users expect "this backup = my 53 MB
+            // DB"; the dedup win is shown once, as the section's savings figure.
+            // (kvSize reassembles via the manifest; the marker's 13 bytes are not
+            // what a user wants to see for a full backup.) Trimming still sizes by
+            // snapshotFootprint in db.cjs, so this display change can't over-trim.
+            return { key, size: kvSize(key) || 0, timestamp: ts };
         }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
         res.json({ snapshots: out });
     } catch (err) { next(err); }
@@ -5345,6 +5742,11 @@ app.put('/api/backup/server/path', async (req, res, next) => {
             return res.status(400).json({ error: 'Path required' });
         }
         const resolved = path.resolve(next);
+        if (isManagedBackupPath(resolved)) {
+            return res.status(400).json({
+                error: 'Backup path cannot be inside PocketRisu app files. Choose a separate folder such as data/backups.',
+            });
+        }
         // Ensure parent exists / target is writable. Create the dir if missing.
         try {
             if (!existsSync(resolved)) {
@@ -5360,6 +5762,7 @@ app.put('/api/backup/server/path', async (req, res, next) => {
         const previous = backupsDir;
         backupsDir = resolved;
         kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
+        writeBackupPathMarker(resolved);
         res.json({
             path: backupsDir,
             previous,
@@ -5402,11 +5805,20 @@ app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
         let skipped = 0;
         let totalSaved = 0;
 
+        const vips = await getVips()
+
         for (let i = 0; i < imageFiles.length; i++) {
             const entry = imageFiles[i];
             try {
                 const original = await fs.readFile(entry.filePath);
-                const webpBuf = await sharp(original).webp({ quality }).toBuffer();
+                const img = vips.Image.newFromBuffer(original)
+                let webpBuf
+                try {
+                    const out = img.writeToBuffer('.webp', { Q: quality })
+                    webpBuf = Buffer.from(out);
+                } finally {
+                    img.delete()
+                }
 
                 if (webpBuf.length < original.length) {
                     const sidecar = await readInlaySidecar(entry.id);
@@ -5454,7 +5866,7 @@ app.get('/api/update-check', async (req, res) => {
         res.json({ currentVersion, hasUpdate: false, severity: 'none', disabled: true, deploymentType, canSelfUpdate: false });
         return;
     }
-    const result = await fetchLatestRelease();
+    const result = await fetchLatestRelease(req.query.lang);
     const response = result || { currentVersion, hasUpdate: false, severity: 'none' };
     response.deploymentType = deploymentType;
     response.canSelfUpdate = deploymentType === 'portable'
@@ -5827,7 +6239,13 @@ async function restoreBackup(backupDir, rootDir) {
 
 app.get('/api/tunnel/status', async (req, res) => {
     if (!await checkAuth(req, res)) return;
-    res.json({ disabled: TUNNEL_DISABLED, status: tunnelStatus, url: tunnelUrl, error: tunnelError });
+    res.json({
+        disabled: TUNNEL_DISABLED,
+        status: tunnelStatus,
+        url: tunnelUrl,
+        error: tunnelError,
+        platform: process.platform,
+    });
 });
 
 app.post('/api/tunnel/start', async (req, res) => {

@@ -18,7 +18,6 @@
     import ModelList from "src/lib/UI/ModelList.svelte";
     import { onDestroy, onMount } from "svelte";
     import {defaultAutoSuggestPrompt} from "../../../ts/storage/defaultPrompts";
-    import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
 
     let sorted = 0
     let warns: string[] = $state([])
@@ -267,8 +266,10 @@
             <Help unrecommended key='customChainOfThought' />
         </Check>
     {/if}
-    <span class="text-textcolor mt-4">{language.maxThoughtTagDepth} <Help key="maxThoughtTagDepth"/></span>
-    <NumberInput className="mt-2" bind:value={DBState.db.promptSettings.maxThoughtTagDepth}/>
+    <div>
+        <span class="text-textcolor mt-4">{language.maxThoughtTagDepth} <Help key="maxThoughtTagDepth"/></span>
+        <NumberInput className="mt-2" bind:value={DBState.db.promptSettings.maxThoughtTagDepth}/>
+    </div>
     <span class="text-textcolor mt-4">{language.customPromptTemplateToggle} <Help key='customPromptTemplateToggle' /></span>
     <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.customPromptTemplateToggle}/>
     <span class="text-textcolor mt-4">{language.defaultVariables} <Help key='defaultVariables' /></span>
@@ -293,9 +294,6 @@
         <TextInput className="mt-2" bind:value={DBState.db.extractJson}/>
     {/if}
 
-    {#if !DBState.db.auxModelUnderModelSettings}
-        <AuxModelSelectors />
-    {/if}
 
     {#snippet fallbackModelList(arg:'model'|'memory'|'translate'|'emotion'|'otherAx')}
         {#each DBState.db.fallbackModels[arg] as model, i}
@@ -305,7 +303,7 @@
             <ModelList bind:value={DBState.db.fallbackModels[arg][i]} blankable />
         {/each}
         <div class="flex gap-2">
-            <button class="bg-selected text-white p-2 rounded-md" onclick={() => {
+            <button class="bg-selected text-textcolor p-2 rounded-md" onclick={() => {
                 let value = DBState.db.fallbackModels[arg] ?? []
                 value.push('')
                 DBState.db.fallbackModels[arg] = value

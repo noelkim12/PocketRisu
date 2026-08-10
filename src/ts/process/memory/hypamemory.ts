@@ -253,7 +253,7 @@ export class HypaProcesser{
             };
  
             const localNetworkOpts = isLocalNetworkUrl(replaceUrl.toString()) ? { networkRoute: 'local_network' as const } : {};
-            gf = await globalFetch(replaceUrl.toString(), { ...fetchArgs, ...localNetworkOpts })
+            gf = await globalFetch(replaceUrl.toString(), { ...fetchArgs, ...localNetworkOpts, logCategory: 'embedding', logSource: 'memory' })
         }
         if(this.model === 'ada' || this.model === 'openai3small' || this.model === 'openai3large'){
             const db = getDatabase()
@@ -264,6 +264,8 @@ export class HypaProcesser{
             }
 
             gf = await globalFetch("https://api.openai.com/v1/embeddings", {
+                logCategory: 'embedding',
+                logSource: 'memory',
                 headers: {
                     "Authorization": "Bearer " + (this.oaikey?.trim() || db.supaMemoryKey?.trim())
                 },

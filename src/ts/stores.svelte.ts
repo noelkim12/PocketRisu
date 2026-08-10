@@ -3,6 +3,7 @@ import type { character, Database } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
 import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
+import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
 import type { hubType } from "./characterCards";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
@@ -36,6 +37,16 @@ export const settingsOpen = writable(false)
 export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
+export const presetSelectCallback = writable<((index: number) => void) | null>(null)
+export const openModelPresetList = writable(false)
+export const modelPresetSelectCallback = writable<((id: string) => void) | null>(null)
+export const openModelProfileBrowser = writable(false)
+// When set to a preset id, the profile browser replaces that preset's profile
+// (migrating matching userValues) instead of creating a new preset. null = create.
+export const modelProfileReplaceTarget = writable<string | null>(null)
+// Set to a newly-created preset id so the ModelPreset settings page opens it
+// for editing immediately. Consumed (cleared) by ModelPresetSettings.
+export const openModelPresetEditId = writable<string | null>(null)
 export const openModuleListStore = writable(false)
 export const openThemePresetList = writable(false)
 export const openPersonaList = writable(false)
@@ -63,6 +74,21 @@ export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 // other pages can deep-link via openSettings(SettingsRoute.System,
 // SystemTab.X) — see src/ts/routing.
 export const SystemSubmenuIndex = writable(0)
+// Sub-tab index inside the Accessibility settings page. A store so the model-
+// mode gear button can deep-link to the Sidebar tab — see src/ts/routing
+// (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
+export const AccessibilitySubmenuIndex = writable(0)
+// Sub-tab indices for the remaining tabbed settings pages. Stores (instead of
+// page-local $state) so the settings search can deep-link to a specific tab —
+// see src/ts/setting/searchIndex.ts (navigateToSearchResult).
+export const DisplaySubmenuIndex = writable(0)
+export const BotSubmenuIndex = writable(0)
+export const PromptPresetSubmenuIndex = writable(0)
+export const OtherBotsSubmenuIndex = writable(0)
+export const InlayGallerySubmenuIndex = writable(0)
+// List-view tab of the Model Preset page (Presets / API keys / Options).
+// Distinct from the editor's own sub-tabs, which stay page-local.
+export const ModelPresetListTabIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
 export const ScrollToMessageStore = $state({
@@ -197,26 +223,27 @@ export type MenuDef = {
     id: string,
 }
 
+export type ChatPanelDef = {
+    id: string,
+    pluginName: string,
+    html: string,
+    className?: string,
+}
+
 export const additionalSettingsMenu = $state([] as MenuDef[])
 export const additionalFloatingActionButtons = $state([] as MenuDef[])
 export const additionalHamburgerMenu = $state([] as MenuDef[])
 export const additionalChatMenu = $state([] as MenuDef[])
+export const chatPanelStore = $state([] as ChatPanelDef[])
 export const bodyIntercepterStore = $state([] as {
     id: string,
     callback: (body: any, type: string) => Promise<any>
 }[])
-export const easyPanelStore = $state({
-    open: false,
-})
 export const popupStore = $state({
     children: null as null | import("svelte").Snippet,
     mouseX: 0,
     mouseY: 0,
     openId: 0,
-})
-
-export const loadoutModalStore = $state({
-    open: false
 })
 
 export const popUpEditorStore = $state({
@@ -248,8 +275,8 @@ $effect.root(() => {
         }
     })
     $effect(() => {
-        try { $state.snapshot(DBState.db.modules) } catch (e) {
-            console.warn('[ModuleUpdate] $state.snapshot(modules) failed:', e)
+        try { deepTouch(DBState.db.modules) } catch (e) {
+            console.warn('[ModuleUpdate] deepTouch(modules) failed:', e)
             return
         }
         DBState?.db?.enabledModules

@@ -11,6 +11,7 @@ import { alertError, alertInput, alertNormal, alertSelect } from "../alert";
 import type { OpenAIChat } from "./index.svelte";
 import { HypaProcesser } from "./memory/hypamemory";
 import { requestChatData } from "./request/request";
+import { collectStreamingText } from "./request/shared";
 import { generateAIImage } from "./stableDiff";
 import { writeInlayImage } from "./files/inlays";
 import { runScripted } from "./scriptings";
@@ -23,6 +24,13 @@ export interface triggerscript{
     conditions: triggerCondition[]
     effect:triggerEffect[]
     lowLevelAccess?: boolean
+    /**
+     * Runtime-only: set by getModuleTriggers() on the copy it hands out, so LLM
+     * calls made by this trigger can be attributed to the module that shipped
+     * it (db.moduleModelBindings). Never persisted — character-owned triggers
+     * leave it undefined.
+     */
+    moduleId?: string
 }
 
 export type triggerCondition = triggerConditionsVar|triggerConditionsExists|triggerConditionsChatIndex
@@ -1035,26 +1043,6 @@ export const requestAllowList = [
     ...safeSubset
 ]
 
-async function collectStreamingText(stream: ReadableStream<{ [key: string]: string }>): Promise<string> {
-    const reader = stream.getReader()
-    let lastChunk = ''
-
-    while (true) {
-        const { done, value } = await reader.read()
-        if (value) {
-            const firstKey = Object.keys(value)[0]
-            if (firstKey) {
-                lastChunk = value[firstKey] ?? lastChunk
-            }
-        }
-        if (done) {
-            break
-        }
-    }
-
-    return lastChunk
-}
-
 export async function runTrigger(char:character,mode:triggerMode, arg:{
     chat: Chat,
     recursiveCount?: number
@@ -1480,6 +1468,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         bias: {},
                         useStreaming: false,
                         noMultiGen: true,
+                        moduleId: trigger.moduleId,
                     }, 'model')
 
                     if(result.type === 'fail' || result.type === 'streaming' || result.type === 'multiline'){
@@ -1551,6 +1540,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         getVar: getVar,
                         char: char,
                         chat: chat,
+                        moduleId: trigger.moduleId,
                     })
 
                     if(triggerCodeResult.stopSending){
@@ -1907,6 +1897,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         bias: {},
                         useStreaming: effect.streaming ?? false,
                         noMultiGen: true,
+                        moduleId: trigger.moduleId,
                     }, effect.model)
 
                     if(result.type === 'fail' || result.type === 'multiline'){

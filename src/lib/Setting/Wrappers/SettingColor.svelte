@@ -30,7 +30,16 @@
     });
 </script>
 
-<div class="flex items-center {item.classes ?? 'mt-2'}">
+<!--
+    WARNING: the swatch here is LEFT-aligned, unlike the other ColorInput usages
+    (CustomColorSchemeEditor / CustomTextThemeEditor) which are right-aligned.
+    ColorInput.svelte forces the picker popup to open leftward (right:0) to fix a
+    clipping bug on wide/fullscreen windows. That assumes a right-aligned swatch;
+    with this left-aligned layout the popup may instead clip past the panel's left
+    edge. No setting currently registers type 'color', so this is dormant — but if
+    a 'color' setting is added, revisit popup alignment here before relying on it.
+-->
+<div class="flex items-center {item.classes ?? 'mt-2'}" data-setting-id={item.id}>
     <ColorInput bind:value={localValue} nullable={item.options?.nullable ?? false} />
     <span class="ml-2">{getLabel(item)}</span>
 </div>

@@ -2,8 +2,9 @@ import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstal
 import { SandboxHost } from "./factory";
 import { getDatabase, normalizeChat } from "src/ts/storage/database.svelte";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
+import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import DOMPurify from 'dompurify';
-import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
+import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
 import { v4 } from "uuid";
 import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
@@ -12,15 +13,29 @@ import { checkCharOrder, forageStorage, getFetchLogs } from "src/ts/globalApi.sv
 import { changeColorScheme, updateColorScheme, updateTextThemeAndCSS, type ColorScheme } from "src/ts/gui/colorscheme";
 import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
+import { getInlayAsset } from "src/ts/process/files/inlays";
 import { getLLMCache, searchLLMCache } from "src/ts/translator/translator";
 import { hasher } from "src/ts/parser/parser.svelte";
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from "src/ts/model/types";
 import { readPersistentJson, removePersistentKey, writePersistentJson } from "src/ts/storage/persistentKv";
+import { endAllGenerations } from "src/ts/process/generationState";
 import { sendChat as processSendChat, doingChat } from "src/ts/process/index.svelte";
 import { getModelInfo } from "src/ts/model/modellist";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
 import { requestChatDataMain } from "src/ts/process/request/request";
 import type { OpenAIChat } from "src/ts/process/index.svelte";
+import { getModuleLorebooks } from "src/ts/process/modules";
+import {
+    registerTTSPreprocessor,
+    unregisterTTSPreprocessor,
+    registerTTSPostprocessor,
+    unregisterTTSPostprocessor,
+    type BeforeTTSContext,
+    type BeforeTTSResult,
+    type AfterTTSContext,
+    type AfterTTSResult,
+    type TTSHookFn,
+} from "src/ts/process/ttsHooks";
 
 /*
     V3 API for RisuAI Plugins
@@ -42,6 +57,7 @@ import type { OpenAIChat } from "src/ts/process/index.svelte";
 */
 
 const pluginChannel = new Map<string, Function>();
+const documentEventListeners: Array<{type: string, listener: EventListenerOrEventListenerObject, options: any}> = [];
 
 class SafeElement {
     #element: HTMLElement;
@@ -301,6 +317,7 @@ class SafeElement {
                 listener(trimEvent(event))
             }
             this.#eventIdMap.set(id, modifiedListener)
+            documentEventListeners.push({type, listener: modifiedListener as EventListenerOrEventListenerObject, options: realOptions})
             document.addEventListener(type, modifiedListener, realOptions)
             return id;
         }
@@ -315,6 +332,7 @@ class SafeElement {
                 }, delay);
             }
             this.#eventIdMap.set(id, modifiedListener)
+            documentEventListeners.push({type, listener: modifiedListener as EventListenerOrEventListenerObject, options: realOptions})
             document.addEventListener(type, modifiedListener, realOptions);
             return id;
         }
@@ -328,6 +346,8 @@ class SafeElement {
         if(listener){
             const realOptions = typeof options === 'boolean' ? { capture: options } : options || {};
             document.removeEventListener(type, listener as EventListenerOrEventListenerObject, realOptions);
+            const idx = documentEventListeners.findIndex(e => e.listener === listener);
+            if(idx !== -1) documentEventListeners.splice(idx, 1);
             this.#eventIdMap.delete(id);
         }
     }
@@ -463,6 +483,10 @@ class SafeMutationObserver {
         }
     }
 
+    disconnect() {
+        this.#observer.disconnect();
+    }
+
 }
 
 const pluginUnloadCallbacks: Map<string, Function[]> = new Map();
@@ -479,6 +503,21 @@ const makeMenuUnloadCallback = (menuId:string, menuStore: MenuDef[]) =>{
         const index = menuStore.findIndex(item => item.id === menuId);
         if(index !== -1){
             menuStore.splice(index, 1);
+        }
+    }
+}
+
+const removeChatPanel = (id: string) => {
+    const index = chatPanelStore.findIndex(item => item.id === id);
+    if(index !== -1){
+        chatPanelStore.splice(index, 1);
+    }
+}
+
+const removePluginChatPanels = (pluginName: string) => {
+    for(let i = chatPanelStore.length - 1; i >= 0; i--){
+        if(chatPanelStore[i].pluginName === pluginName){
+            chatPanelStore.splice(i, 1);
         }
     }
 }
@@ -513,6 +552,16 @@ const unloadV3Plugin = async (pluginName: string) => {
         console.error(`Error terminating plugin ${pluginName}:`, error);
     }
 }
+
+type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat';
+const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat'];
+
+// Plugin names are free text (the //@name directive), so `${name}_${desc}` keys
+// can collide — both across permissions and with a legacy name-only entry that
+// happens to read like "name_desc". JSON-encoding the pair makes every key
+// unambiguous: ["foo","db"] can never equal a plain "foo_db" or ["foo_db","x"].
+const permissionKeyOf = (pluginName: string, permissionDesc: string) =>
+    JSON.stringify([pluginName, permissionDesc])
 
 const permissionGivenPlugins: Set<string> = new Set();
 const permissionDeniedPlugins: Set<string> = new Set();
@@ -558,13 +607,17 @@ export async function resetAllPluginPermissions() {
 
 export async function resetPluginPermission(pluginName: string) {
     await ensurePluginPermissionStateLoaded()
-    permissionGivenPlugins.delete(pluginName)
-    permissionDeniedPlugins.delete(pluginName)
-    const prefix = pluginName + '_'
-    for (const key of [...permissionCache.keys()]) {
-        if (key.startsWith(prefix)) {
-            permissionCache.delete(key)
-        }
+    // Permission descs are a fixed enum, so we delete the exact key for each
+    // one rather than prefix-matching (which would also wipe another plugin's
+    // keys). `pluginName` alone covers legacy name-only entries from older
+    // versions, which JSON keys never collide with but reset should still clear.
+    const exactKeys = pluginPermissionDescs.map(desc => permissionKeyOf(pluginName, desc))
+    for (const key of [pluginName, ...exactKeys]) {
+        permissionGivenPlugins.delete(key)
+        permissionDeniedPlugins.delete(key)
+    }
+    for (const desc of pluginPermissionDescs) {
+        permissionCache.delete(permissionKeyOf(pluginName, desc) + '_lastGrantTime')
     }
     const plugin = DBState.db.plugins?.find(p => p.name === pluginName)
     if (plugin?.script) {
@@ -592,67 +645,108 @@ type PluginV3ProviderOptions = PluginV2ProviderOptions & {
 
 export const customV3ProviderMetaStore:LLMModel[] = []
 
-const getPluginPermission = async (pluginName: string, permissionDesc: 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat', reconfirm: boolean|'periodically' = false) => {
-    await ensurePluginPermissionStateLoaded()
-    let pluginHash = ''
+// Serializes permission dialogs. Every plugin shares the single global
+// alertStore, so when several plugins request permission at boot they would
+// otherwise overwrite each other's dialog — only the last one stays clickable
+// and a single click resolves all of them. The chain makes each dialog wait
+// for the previous one to finish, showing them one at a time.
+let pluginPermissionDialogChain: Promise<unknown> = Promise.resolve()
 
-    let requiresReconfirm = false;
-
-    if(reconfirm === 'periodically'){
-        const lastGrantTime = permissionCache.get(pluginName + '_' + permissionDesc + '_lastGrantTime') as number | undefined;
-        const now = Date.now();
-        if(!lastGrantTime || now - lastGrantTime > 3 * 24 * 60 * 60 * 1000){ //3 days
-            requiresReconfirm = true;
-        }
+const isPermissionResolved = async (
+    pluginName: string,
+    permissionDesc: PluginPermissionDesc,
+    requiresReconfirm: boolean,
+): Promise<{ resolved: boolean; value: boolean; pluginHash: string }> => {
+    const permissionKey = permissionKeyOf(pluginName, permissionDesc);
+    if (!requiresReconfirm && permissionGivenPlugins.has(permissionKey)) {
+        return { resolved: true, value: true, pluginHash: '' }
     }
-    else if(reconfirm === true){
-        requiresReconfirm = true;
-    }
-
-    if (!requiresReconfirm && permissionGivenPlugins.has(pluginName)) {
-        return true;
-    }
-    if (!requiresReconfirm && permissionDeniedPlugins.has(pluginName)) {
-        return false;
+    if (!requiresReconfirm && permissionDeniedPlugins.has(permissionKey)) {
+        return { resolved: true, value: false, pluginHash: '' }
     }
 
-    pluginHash = await hasher(
+    const pluginHash = await hasher(
         new TextEncoder().encode(
             DBState.db.plugins.find(p => p.name === pluginName)?.script
         )
     ) + `_${permissionDesc}`;
 
-    if(!requiresReconfirm && permissionCache.get(pluginHash)){
-        permissionGivenPlugins.add(pluginName);
-        return true;
+    if (!requiresReconfirm && permissionCache.get(pluginHash)) {
+        permissionGivenPlugins.add(permissionKey);
+        return { resolved: true, value: true, pluginHash }
     }
-    
 
-    let alertTitle =
-        permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
-        : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
-        : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
-        : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
-        : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
-        : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
-        : `Error`
-    if(alertTitle === 'Error'){
+    return { resolved: false, value: false, pluginHash }
+}
+
+const getPluginPermission = async (pluginName: string, permissionDesc: PluginPermissionDesc, reconfirm: boolean|'periodically' = false) => {
+    await ensurePluginPermissionStateLoaded()
+
+    // Recomputed (not captured) so a periodic reconfirm reflects the latest
+    // lastGrantTime: when several identical requests queue together, an earlier
+    // one may refresh it, making the reconfirm no longer due for the rest.
+    const computeRequiresReconfirm = () => {
+        if(reconfirm === 'periodically'){
+            const lastGrantTime = permissionCache.get(permissionKeyOf(pluginName, permissionDesc) + '_lastGrantTime') as number | undefined;
+            return !lastGrantTime || Date.now() - lastGrantTime > 3 * 24 * 60 * 60 * 1000; //3 days
+        }
+        return reconfirm === true;
+    }
+
+    // Fast path: if the answer is already known, skip the serialization queue
+    // entirely so cached/granted permissions never block on a pending dialog.
+    const early = await isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm())
+    if (early.resolved) {
+        return early.value
+    }
+
+    const showDialog = async (): Promise<boolean> => {
+        // Re-check under the lock: an earlier queued dialog for the same plugin
+        // may have already granted/denied (or refreshed a periodic grant) while
+        // we were waiting our turn — recompute reconfirm so we don't re-prompt.
+        const requiresReconfirm = computeRequiresReconfirm()
+        const recheck = await isPermissionResolved(pluginName, permissionDesc, requiresReconfirm)
+        if (recheck.resolved) {
+            return recheck.value
+        }
+        const pluginHash = recheck.pluginHash
+
+        let alertTitle =
+            permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
+            : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
+            : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
+            : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
+            : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
+            : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
+            : `Error`
+        if(alertTitle === 'Error'){
+            return false;
+        }
+        const permissionKey = permissionKeyOf(pluginName, permissionDesc);
+        const conf = await alertConfirm(alertTitle)
+        if(conf && pluginHash){
+            permissionGivenPlugins.add(permissionKey);
+            permissionDeniedPlugins.delete(permissionKey);
+            permissionCache.set(pluginHash, true);
+            if(reconfirm === 'periodically'){
+                permissionCache.set(permissionKeyOf(pluginName, permissionDesc) + '_lastGrantTime', Date.now());
+            }
+            await persistPluginPermissionState()
+            return true;
+        }
+        permissionDeniedPlugins.add(permissionKey);
+        await persistPluginPermissionState()
         return false;
     }
-    const conf = await alertConfirm(alertTitle)
-    if(conf && pluginHash){
-        permissionGivenPlugins.add(pluginName);
-        permissionDeniedPlugins.delete(pluginName);
-        permissionCache.set(pluginHash, true);
-        if(reconfirm === 'periodically'){
-            permissionCache.set(pluginName + '_' + permissionDesc + '_lastGrantTime', Date.now());
-        }
-        await persistPluginPermissionState()
-        return true;
-    }
-    permissionDeniedPlugins.add(pluginName);
-    await persistPluginPermissionState()
-    return false;
+
+    // Append to the dialog chain so only one permission dialog is shown at a
+    // time. finally restores the chain even if showDialog throws, so a single
+    // failure never deadlocks every later permission request.
+    const run = pluginPermissionDialogChain
+        .catch(() => {})
+        .then(() => showDialog())
+    pluginPermissionDialogChain = run.catch(() => {})
+    return run
 }
 
 const urlBlacklist = [
@@ -708,7 +802,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         getChar: oldApis.getChar,
         setChar: oldApis.setChar,
-        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string }>, options?: PluginV3ProviderOptions) => {
+        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
             provs.push(name)
@@ -736,6 +830,18 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
             customV3ProviderMetaStore.push(modelData);
         },
+        addTTSPreprocessor: async (
+            func: TTSHookFn<BeforeTTSContext, BeforeTTSResult>,
+        ) => {
+            registerTTSPreprocessor(func);
+            addPluginUnloadCallback(plugin.name, () => unregisterTTSPreprocessor(func));
+        },
+        addTTSPostprocessor: async (
+            func: TTSHookFn<AfterTTSContext, AfterTTSResult>,
+        ) => {
+            registerTTSPostprocessor(func);
+            addPluginUnloadCallback(plugin.name, () => unregisterTTSPostprocessor(func));
+        },
         addRisuScriptHandler: oldApis.addRisuScriptHandler,
         removeRisuScriptHandler: oldApis.removeRisuScriptHandler,
         addRisuReplacer: async (name:string,func:Function) => {
@@ -751,6 +857,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         setDatabase: oldApis.setDatabase,
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
+        readInlay: async (id: string) => {
+            return await getInlayAsset(id);
+        },
         saveAsset: oldApis.saveAsset,
         //Same functionality, but new implementation
         getDatabase: async (includeOnly:string[]|'all' = 'all') => {
@@ -903,6 +1012,18 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const db = DBState.db
             const charId = get(selectedCharID)
             return db.characters[charId].chatPage
+        },
+        getCurrentLorebookEntries: () => {
+            const charId = get(selectedCharID)
+            const char = DBState.db.characters[charId]
+            if(!char){
+                return []
+            }
+            const page = char.chatPage
+            const characterLore = char.globalLore ?? []
+            const chatLore = char.chats?.[page]?.localLore ?? []
+            const moduleLore = getModuleLorebooks()
+            return $state.snapshot(characterLore.concat(chatLore).concat(moduleLore))
         },
         //New names for character APIs, to match API naming conventions
         getCharacter: oldApis.getChar,
@@ -1084,6 +1205,43 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
             return {id};
         },
+        setChatPanel: (
+            content: string | null,
+            options: {
+                id?: string,
+                className?: string,
+            } = {}
+        ) => {
+            const id = options.id || `${plugin.name}:default`;
+
+            if(content === null || content === ''){
+                removeChatPanel(id);
+                return {id};
+            }
+
+            if(typeof content !== 'string'){
+                throw new Error("content must be a string or null");
+            }
+
+            const panel = {
+                id,
+                pluginName: plugin.name,
+                html: DOMPurify.sanitize(content),
+                className: typeof options.className === 'string'
+                    ? DOMPurify.sanitize(options.className, {ALLOWED_TAGS: [], ALLOWED_ATTR: []})
+                    : undefined,
+            }
+
+            const existingIndex = chatPanelStore.findIndex(item => item.id === id);
+            if(existingIndex !== -1){
+                chatPanelStore[existingIndex] = panel;
+            }
+            else{
+                chatPanelStore.push(panel);
+            }
+            addPluginUnloadCallback(plugin.name, () => removePluginChatPanels(plugin.name));
+            return {id};
+        },
         registerMCP: registerMCPModule,
         unregisterMCP: unregisterMCPModule,
         unregisterUIPart: (id: string) => {
@@ -1098,30 +1256,38 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             removeFromMenuStore(additionalFloatingActionButtons);
             removeFromMenuStore(additionalHamburgerMenu);
             removeFromMenuStore(additionalChatMenu);
+            removeChatPanel(id);
         },
         log: (message:string) => {
             console.log(`[RisuAI Plugin: ${plugin.name}] ${message}`);
         },
         createMutationObserver(callback: SafeMutationCallback): SafeMutationObserver {
-            return new SafeMutationObserver(callback)
+            const observer = new SafeMutationObserver(callback)
+            addPluginUnloadCallback(plugin.name, () => {
+                observer.disconnect()
+            })
+            return observer
         },
         onUnload: (callback: () => void) => {
             addPluginUnloadCallback(plugin.name, callback);
         },
         getFetchLogs: async () => {
-            const unsafeFetchLog = getFetchLogs()
             const conf = await getPluginPermission(plugin.name, 'fetchLogs');
             if(!conf){
                 return null;
             }
+            // Reads the server request log; the shape returned to plugins is
+            // unchanged from when this came from the in-memory fetch log.
+            const unsafeFetchLog = await getFetchLogs()
             return unsafeFetchLog.map(log => {
 
                 const url = new URL(log.url);
                 return {
                     url: url.origin + url.pathname,
-                    body: log.body,
+                    body: log.requestBody ?? '',
                     status: log.status,
-                    response: log.response,
+                    response: log.responseBody,
+                    timestamp: log.timestamp,
                 }
             })
         },
@@ -1145,7 +1311,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }
         },
         getLocalPluginStorage: () => {
-            return new SafeLocalPluginStorage()
+            return new SafeLocalPluginStorage(plugin.name)
         },
         checkCharOrder: checkCharOrder,
         requestPluginPermission: (permission:string) => {
@@ -1166,16 +1332,36 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return v;
         },
         _getPluginStorage: oldApis.pluginStorage.getItem,
-        _setPluginStorage: oldApis.pluginStorage.setItem,
-        _removePluginStorage: oldApis.pluginStorage.removeItem,
-        _clearPluginStorage: oldApis.pluginStorage.clear,
+        // Wrapped (not aliased) so we can record the originating plugin into the
+        // sidecar meta map. The value write is unchanged; reads stay aliased.
+        _setPluginStorage: (key: string, value: any) => {
+            oldApis.pluginStorage.setItem(key, value)
+            recordOwner('save', key, plugin.name)
+        },
+        _removePluginStorage: (key: string) => {
+            oldApis.pluginStorage.removeItem(key)
+            removeOwner('save', key)
+        },
+        _clearPluginStorage: () => {
+            oldApis.pluginStorage.clear()
+            clearOwners('save')
+        },
         _keyPluginStorage: oldApis.pluginStorage.key,
         _keysPluginStorage: oldApis.pluginStorage.keys,
         _lengthPluginStorage: oldApis.pluginStorage.length,
         _getSafeLocalStorage: oldApis.safeLocalStorage.getItem,
-        _setSafeLocalStorage: oldApis.safeLocalStorage.setItem,
-        _removeSafeLocalStorage: oldApis.safeLocalStorage.removeItem,
-        _clearSafeLocalStorage: oldApis.safeLocalStorage.clear,
+        _setSafeLocalStorage: (key: string, value: string) => {
+            oldApis.safeLocalStorage.setItem(key, value)
+            recordOwner('local', key, plugin.name)
+        },
+        _removeSafeLocalStorage: (key: string) => {
+            oldApis.safeLocalStorage.removeItem(key)
+            removeOwner('local', key)
+        },
+        _clearSafeLocalStorage: () => {
+            oldApis.safeLocalStorage.clear()
+            clearOwners('local')
+        },
         _keySafeLocalStorage: oldApis.safeLocalStorage.key,
         _keysSafeLocalStorage: oldApis.safeLocalStorage.keys,
         searchTranslationCache: async (partialKey: string) => {
@@ -1209,14 +1395,21 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             mode: ModelModeExtended
             messages: OpenAIChat[]
             staticModel?: string
+            allowPlugins?: boolean
         }) => {
             return requestChatDataMain({
                 formated: options.messages,
                 bias: {},
                 staticModel: options.staticModel,
 
-                //Executing plugin provider is block because it can be used for loopholes for ipc right now.
-                blockPlugins: true
+                // Calls into plugin-provided models are blocked by default to
+                // guard against accidental IPC loops between provider plugins.
+                // Plugin authors who need to reach the user's plugin-supplied
+                // main or auxiliary model (e.g. a TTS preprocessor that
+                // rewrites text with the configured otherAx model) can opt in
+                // explicitly with `allowPlugins: true`, accepting responsibility
+                // for avoiding provider-to-provider call loops.
+                blockPlugins: !options.allowPlugins,
             }, options.mode)
         },
         sendChat: async (message: string) => {
@@ -1262,13 +1455,16 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             } finally {
                 // Plugin API path does not pass through the UI unlock logic,
                 // so release doingChat here on both success and failure.
-                doingChat.set(false);
+                endAllGenerations();
             }
 
             return true;
         },
         addPluginChannelListener: (channelName: string, callback: Function) => {
             pluginChannel.set(plugin.name + channelName, callback);
+            addPluginUnloadCallback(plugin.name, () => {
+                pluginChannel.delete(plugin.name + channelName);
+            })
         },
         postPluginChannelMessage: (pluginName: string, channelName: string, message: any) => {
 
@@ -1318,6 +1514,12 @@ export async function loadV3Plugins(plugins:RisuPlugin[]){
     await Promise.all(v3PluginInstances.map(async (instance) => {
         await unloadV3Plugin(instance.name);
     }));
+
+    for(const entry of documentEventListeners){
+        document.removeEventListener(entry.type, entry.listener, entry.options);
+    }
+    documentEventListeners.length = 0;
+
     const loadPromises = plugins.map(plugin => executePluginV3(plugin));
     await Promise.all(loadPromises);
 }

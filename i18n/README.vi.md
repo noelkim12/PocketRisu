@@ -43,6 +43,7 @@ PocketRisu là một nền tảng trò chuyện nhập vai AI tự lưu trữ, c
 - [Hướng dẫn cài đặt](../docs/vi/install.md)
 - [Hướng dẫn di chuyển từ RisuAI](../docs/vi/migration.md)
 - [Truy cập từ xa](../docs/vi/remote.md)
+- [Hướng dẫn cài đặt Termux (Android)](../docs/vi/termux.md)
 
 
 ## Tương thích với RisuAI
@@ -61,6 +62,7 @@ PocketRisu được phát triển từ [RisuAI](https://github.com/kwaroran/Risu
 
 - **Nhiều nhà cung cấp AI**: OpenAI, Claude, Gemini, DeepInfra, OpenRouter, Ollama và nhiều hơn
 - **Truy cập đa thiết bị**: Chạy một máy chủ và truy cập từ PC, máy tính bảng, điện thoại thông minh qua trình duyệt web
+- **Tạo phản hồi phía máy chủ**: Máy chủ tiếp tục tạo phản hồi ngay cả khi màn hình tắt hoặc mất kết nối — khi kết nối lại, phản hồi đã hoàn thành sẽ được khôi phục tự động
 - **Lưu trữ dữ liệu thống nhất**: Tất cả dữ liệu (nhân vật, cuộc trò chuyện, cài đặt, ảnh inlay) được lưu trong một cơ sở dữ liệu SQLite duy nhất trên máy chủ của bạn (không phụ thuộc vào dịch vụ đám mây bên ngoài)
 - **Sao lưu phía máy chủ tiện lợi**: Máy chủ xử lý sao lưu và khôi phục trực tiếp; cũng hỗ trợ xuất/nhập sao lưu cục bộ `.bin`
 - **Bảng điều khiển mạnh mẽ**: Sử dụng đĩa (theo nhân vật / theo module), không gian snapshot có thể thu hồi, tối ưu hóa SQLite và nhiều hơn — tất cả trong một màn hình

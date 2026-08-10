@@ -1,7 +1,8 @@
 {
   "name": "pocketrisu",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.9.0",
+  "packageManager": "pnpm@10.34.1",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -13,8 +14,9 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:help": "node scripts/check-help-keys.mjs",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.config.server.ts",
     "test:compat": "vitest run --config vitest.config.compat.ts",
+    "test:server": "vitest run --config vitest.config.server.ts",
     "runserver": "node server/node/server.cjs",
     "hono:build": "vite build --sourcemap && node server/hono/src/utils/postbuild.js"
   },
@@ -70,7 +72,6 @@
     "pyodide": "^0.27.7",
     "qrcode": "^1.5.4",
     "rfdc": "^1.4.1",
-    "sharp": "^0.33.5",
     "sortablejs": "^1.15.6",
     "streamsaver": "^2.0.6",
     "sucrase": "^3.35.1",
@@ -82,6 +83,7 @@
     "tippy.js": "^6.3.7",
     "ua-parser-js": "^2.0.9",
     "uuid": "^9.0.1",
+    "wasm-vips": "^0.0.17",
     "wasmoon": "^1.16.0",
     "wavefile": "^11.0.0",
     "web-streams-polyfill": "^3.3.3",
@@ -128,8 +130,7 @@
       "esbuild",
       "msgpackr-extract",
       "onnxruntime-node",
-      "protobufjs",
-      "sharp"
+      "protobufjs"
     ]
   }
 }

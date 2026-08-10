@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarStore, openPresetList, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, easyPanelStore, loadoutModalStore, popUpEditorStore, ebookReaderStore } from './ts/stores.svelte';
+    import { DynamicGUI, settingsOpen, sideBarStore, openPresetList, openModelPresetList, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, ebookReaderStore } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -15,6 +15,8 @@
     import { language } from './lang';
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
+    import Modelpreset from './lib/Setting/modelpreset.svelte';
+    import ModelProfileBrowser from './lib/Setting/modelProfileBrowser.svelte';
     import Themepreset from './lib/Setting/themepreset.svelte';
     import ListedPersona from './lib/Setting/listedPersona.svelte';
     import ListedHypaV3Preset from './lib/Setting/listedHypaV3Preset.svelte';
@@ -24,59 +26,82 @@
     import { checkCharOrder } from './ts/globalApi.svelte';
     import { ArrowUpIcon, GlobeIcon, PlusIcon } from '@lucide/svelte';
     import { hypaV3ModalOpen, hypaV3ProgressStore } from "./ts/stores.svelte";
+    import { assetViewerStore } from './ts/assetViewer.svelte';
+    import AssetViewer from './lib/Others/AssetViewer.svelte';
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
     import HypaV3Progress from './lib/Others/HypaV3Progress.svelte';
     import PluginAlertModal from './lib/Others/PluginAlertModal.svelte';
-    import LoadoutModal from './lib/Others/LoadoutModal.svelte';
     import PopupEditor from './lib/Others/PopupEditor.svelte';
     import UpdatePopup from './lib/Others/UpdatePopup.svelte';
     import BootBackupPrompt from './lib/Others/BootBackupPrompt.svelte';
     import PopupList from './lib/UI/PopupList.svelte';
-    import EasyPanel from './lib/Others/ProTools/EasyPanel.svelte';
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
     import GenerationProgress from './lib/Others/GenerationProgress.svelte';
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import EbookReaderOverlay from './lib/EbookReader/EbookReaderOverlay.svelte';
     import Portal from './lib/UI/GUI/Portal.svelte';
+    import RequestStatusToaster from './lib/UI/GUI/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
+    import { RISU_APP_INTERNAL_DRAG_TYPE, RISU_SIDEBAR_DRAG_TYPE } from './ts/dragTypes';
 
     let gridOpen = $state(false)
     let aprilFools = $state(new Date().getMonth() === 3 && new Date().getDate() === 1)
     let aprilFoolsPage = $state(0)
     let keepingSessionAlive = $state(false)
+
+    const getMainDropEffect = (e:DragEvent): DataTransfer['dropEffect'] => {
+        const types = Array.from(e.dataTransfer?.types ?? [])
+        if(types.includes(RISU_SIDEBAR_DRAG_TYPE)){
+            return 'none'
+        }
+        if(types.includes(RISU_APP_INTERNAL_DRAG_TYPE)){
+            return 'none'
+        }
+        return types.includes('Files') ? 'copy' : 'none'
+    }
+
+    const markAppInternalDrag = (e:DragEvent) => {
+        e.dataTransfer?.setData(RISU_APP_INTERNAL_DRAG_TYPE, 'true')
+    }
+
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <main class="flex bg-bg w-full h-full max-w-100vw text-textcolor" ondragover={(e) => {
+    const dropEffect = getMainDropEffect(e)
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'link'
-}} ondrop={async (e) => {
-    e.preventDefault()
-    if (e.dataTransfer.types.includes('application/x-risu-internal')) {
+    e.dataTransfer.dropEffect = dropEffect
+}} ondragstart={markAppInternalDrag} ondrop={async (e) => {
+    const types = Array.from(e.dataTransfer.types ?? [])
+    if (types.includes(RISU_APP_INTERNAL_DRAG_TYPE) || types.includes(RISU_SIDEBAR_DRAG_TYPE)) {
+        e.preventDefault()
         return
     }
     const file = e.dataTransfer.files[0]
-    if (file) {
-        const name = file.name.toLowerCase()
+    if (!file) {
+        e.preventDefault()
+        return
+    }
+    e.preventDefault()
+    const name = file.name.toLowerCase()
 
-        if (name.endsWith('.risup')) {
-            const data = new Uint8Array(await file.arrayBuffer())
-            await importPreset({ name: file.name, data })
-            notifySuccess(language.successImport)
-        } else if (name.endsWith('.risum')) {
-            const data = new Uint8Array(await file.arrayBuffer())
-            const module = await readModule(Buffer.from(data))
-            const db = getDatabase()
-            db.modules.push(module)
-            notifySuccess(language.successImport)
-        } else {
-            await importCharacterProcess({
-                name: file.name,
-                data: file
-            })
-            checkCharOrder()
-        }
+    if (name.endsWith('.risup')) {
+        const data = new Uint8Array(await file.arrayBuffer())
+        await importPreset({ name: file.name, data })
+        notifySuccess(language.successImport)
+    } else if (name.endsWith('.risum')) {
+        const data = new Uint8Array(await file.arrayBuffer())
+        const module = await readModule(Buffer.from(data))
+        const db = getDatabase()
+        db.modules.push(module)
+        notifySuccess(language.successImport)
+    } else {
+        await importCharacterProcess({
+            name: file.name,
+            data: file
+        })
+        checkCharOrder()
     }
 }} onclick={() => {
     if(keepingSessionAlive){
@@ -215,6 +240,12 @@
     {#if $openPresetList}
         <Botpreset close={() => {$openPresetList = false}} />
     {/if}
+    {#if $openModelPresetList}
+        <Modelpreset close={() => {$openModelPresetList = false}} />
+    {/if}
+    {#if $openModelProfileBrowser}
+        <ModelProfileBrowser close={() => {$openModelProfileBrowser = false}} />
+    {/if}
     {#if $openThemePresetList}
         <Themepreset close={() => {$openThemePresetList = false}} />
     {/if}
@@ -242,12 +273,6 @@
     {#if popupStore.children}
         <PopupList />
     {/if}
-    {#if easyPanelStore.open}
-        <EasyPanel />
-    {/if}
-    {#if !DBState.db.hideLoadout && loadoutModalStore.open}
-        <LoadoutModal />
-    {/if}
     {#if popUpEditorStore.open}
         <PopupEditor />
     {/if}
@@ -256,5 +281,9 @@
             <EbookReaderOverlay />
         </Portal>
     {/if}
+    {#if assetViewerStore.open}
+        <AssetViewer />
+    {/if}
     <Toaster />
+    <RequestStatusToaster />
 </main>

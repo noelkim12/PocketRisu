@@ -5,6 +5,7 @@ import { alertInput, alertMd, alertNormal, alertSelect } from "../alert";
 import { sayTTS } from "./tts";
 import { risuChatParser } from "../parser/parser.svelte";
 import { sendChat } from "./index.svelte";
+import { chatGenKey, endGeneration } from "./generationState";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
 import { retainRecentMessages } from "./chatRetention";
@@ -172,6 +173,11 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
                     data: e
                 })
                 await sendChat(-1)
+                // sendChat leaves its generation entry for the caller to release
+                // (DefaultChatScreen does the same after its own send). Without
+                // this the per-chat guard stays held and every later iteration
+                // returns immediately without sending.
+                endGeneration(chatGenKey(currentChat.id))
             }
             return ''
         }

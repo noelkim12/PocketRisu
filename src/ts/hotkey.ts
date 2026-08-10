@@ -1,11 +1,14 @@
 import { get } from "svelte/store"
-import { alertMd, alertSelect, notifyInfo, alertWait, doingAlert, alertRequestLogs } from "./alert"
-import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
-import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, personaSelectCallback, openPresetList, openHypaV3PresetList, openThemePresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
+import { alertClear, alertMd, alertSelect, alertWait, doingAlert } from "./alert"
+import { getDatabase  } from "./storage/database.svelte"
+import { alertStore, DBState, MobileGUIStack, MobileSideBar, openPersonaList, personaSelectCallback, openPresetList, openModelPresetList, openHypaV3PresetList, openThemePresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
 import { doingChat, previewBody, sendChat } from "./process/index.svelte"
+import { endAllGenerations } from "./process/generationState"
+import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
+import { openSettings, SettingsRoute, SystemTab } from "./routing"
 
 export function initHotkey(){
     document.addEventListener('keydown', async (ev) => {
@@ -84,6 +87,10 @@ export function initHotkey(){
                     personaSelectCallback.set(null)
                     break
                 }
+                case 'modelSelect':{
+                    openModelPresetList.set(!get(openModelPresetList))
+                    break
+                }
                 case 'toggleCSS':{
                     SafeModeStore.set(!get(SafeModeStore))
                     updateTextThemeAndCSS()
@@ -94,10 +101,7 @@ export function initHotkey(){
                         return {name: v.name, i}
                     }).sort((a, b) => a.name.localeCompare(b.name))
                     const currentIndex = sorted.findIndex(v => v.i === get(selectedCharID))
-                    if(currentIndex === 0){
-                        return
-                    }
-                    if(currentIndex >= sorted.length - 1){
+                    if(currentIndex <= 0){
                         return
                     }
                     selectedCharID.set(sorted[currentIndex - 1].i)
@@ -110,12 +114,11 @@ export function initHotkey(){
                         return {name: v.name, i}
                     }).sort((a, b) => a.name.localeCompare(b.name))
                     const currentIndex = sorted.findIndex(v => v.i === get(selectedCharID))
-                    if(currentIndex === 0){
-                        return
-                    }
                     if(currentIndex >= sorted.length - 1){
                         return
                     }
+                    // currentIndex === -1 (nothing selected) intentionally falls through
+                    // to sorted[0], matching the previous behaviour.
                     selectedCharID.set(sorted[currentIndex + 1].i)
                     PlaygroundStore.set(0)
                     OpenRealmStore.set(false)
@@ -132,19 +135,31 @@ export function initHotkey(){
                     alertWait("Loading...")
                     ev.preventDefault()
                     ev.stopPropagation()
-                    await sendChat(-1, {
-                        previewPrompt: true
-                    })
+                    try {
+                        await sendChat(-1, {
+                            previewPrompt: true
+                        })
 
-                    let md = ''
-                    md += '### Prompt\n'
-                    md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-                    doingChat.set(false)
-                    alertMd(md)
+                        let md = ''
+                        md += '### Prompt\n'
+                        md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
+                        alertMd(md)
+                    } catch (error) {
+                        // alertWait above opens a deliberately non-closable dialog
+                        // (no X, ESC and outside click blocked). On the success path
+                        // alertMd replaces it, but a throw would otherwise leave the
+                        // user trapped in it until a reload.
+                        alertClear()
+                        throw error
+                    } finally {
+                        // Without this a throw from sendChat/JSON.parse left the
+                        // generation state locked.
+                        endAllGenerations()
+                    }
                     return
                 }
                 case 'toggleLog':{
-                    alertRequestLogs()
+                    openSettings(SettingsRoute.System, SystemTab.RequestLogs)
                     break
                 }
                 case 'quickSettings':{
@@ -155,12 +170,6 @@ export function initHotkey(){
                 case 'scrollToActiveChar':{
                     if(database.enableScrollToActiveChar !== false){
                         window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
-                    }
-                    break
-                }
-                case 'loadout':{
-                    if(!database.hideLoadout){
-                        loadoutModalStore.open = !loadoutModalStore.open
                     }
                     break
                 }
@@ -182,64 +191,6 @@ export function initHotkey(){
         }
 
 
-        if(ev.ctrlKey){
-            switch (ev.key){
-                case "1":{
-                    changeToPreset(0)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "2":{
-                    changeToPreset(1)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "3":{
-                    changeToPreset(2)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "4":{
-                    changeToPreset(3)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "5":{
-                    changeToPreset(4)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "6":{
-                    changeToPreset(5)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "7":{
-                    changeToPreset(6)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "8":{
-                    changeToPreset(7)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-                case "9":{
-                    changeToPreset(8)
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                    break
-                }
-            }
-        }
         if(ev.key === 'Escape'){
             // 모달(AlertComp 팝업 또는 Sh*Dialog)이 열려있을 땐 전역 ESC 동작을 중단한다.
             // bits-ui Dialog는 preventDefault만 하고 stopPropagation은 하지 않기 때문에,
@@ -294,7 +245,7 @@ export function initHotkey(){
     document.addEventListener('dragover', (ev) => {
         if (ev.ctrlKey && !ev.shiftKey && !ev.altKey) {
             const types = ev.dataTransfer?.types || []
-            const isCharacterDrag = types.includes('application/x-risu-internal')
+            const isCharacterDrag = types.includes(RISU_SIDEBAR_DRAG_TYPE)
             
             if (isCharacterDrag) {
                 const db = getDatabase()
@@ -314,14 +265,11 @@ export async function quickMenu(){
     const db = getDatabase()
     const showHypaV3 = db.hypaV3 && db.hypaV3Presets?.length > 1
 
-    const showLoadout = !db.hideLoadout
-
     const options = [
         language.presets,
         language.themePresets,
         language.persona,
         ...(showHypaV3 ? [language.longTermMemory + ' ' + language.presets] : []),
-        ...(showLoadout ? [language.hotkeyDesc.loadout] : []),
         language.cancel
     ]
 
@@ -339,9 +287,6 @@ export async function quickMenu(){
     }
     else if(showHypaV3 && sel === idx++){
         openHypaV3PresetList.set(true)
-    }
-    else if(showLoadout && sel === idx++){
-        loadoutModalStore.open = !(loadoutModalStore.open)
     }
 }
 
@@ -430,15 +375,4 @@ export function initMobileGesture(){
     }, {
         passive: true
     })
-}
-
-function changeToPreset(num:number){
-    if(!doingAlert()){
-        let db = getDatabase()
-        let pres = db.botPresets
-        if(pres.length > num){
-            notifyInfo(`Changed to Preset: ${pres[num].name}`)
-            changeToPreset2(num)
-        }
-    }
 }

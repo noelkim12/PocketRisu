@@ -41,6 +41,7 @@ PocketRisu is a self-hosted AI roleplay chat platform you run on your PC or pers
 - [Installation guide](docs/en/install.md)
 - [RisuAI migration guide](docs/en/migration.md)
 - [Remote access guide](docs/en/remote.md)
+- [Termux installation guide (Android)](docs/en/termux.md)
 
 
 ## RisuAI Compatibility
@@ -59,6 +60,7 @@ For migration from an existing RisuAI installation, see the [migration guide](do
 
 - **Multiple AI providers**: OpenAI, Claude, Gemini, DeepInfra, OpenRouter, Ollama, and more
 - **Multi-device access**: Run one server, access from PC, tablet, and smartphone through a web browser
+- **Server-side generation**: The server keeps generating even if your screen locks or the connection drops — reconnect and the completed response is restored automatically
 - **Unified data storage**: All data (characters, chats, settings, inlay images) stored in a single SQLite database on your server (no external cloud dependency)
 - **Easy server-side backup**: The server handles backup and restore directly; local `.bin` backup export and import also supported
 - **Powerful dashboard**: Disk usage (per character / per module), reclaimable snapshot space, SQLite optimization, and more — all in one screen

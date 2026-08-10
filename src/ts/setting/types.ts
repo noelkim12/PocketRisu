@@ -16,6 +16,17 @@ export interface SettingContext {
     db: Database;
     modelInfo: LLMModel;
     subModelInfo: LLMModel;
+    /** Render mode for row-capable wrappers (select/text/slider). 'row' puts the
+     * label + inline help on the left and the control right-aligned & vertically
+     * centered; 'stacked' (default) keeps the label above the control. Multiline
+     * textareas always stay stacked regardless.
+     * 'block' is 'row' (label + inline help stacked left, control vertically
+     * centered right, border-t divider rhythm) plus a full-width control line
+     * below when width is needed: sliders put their enable switch in the row
+     * slot and the ShSlider (real units) underneath; numbers need no extra
+     * width, so their block rendering IS the row rendering. Currently
+     * implemented by SettingSlider / SettingNumber; others fall back to stacked. */
+    layout?: 'stacked' | 'row' | 'block';
 }
 
 /**
@@ -28,6 +39,7 @@ export type SettingType =
     | 'textarea'   // Multiline text (TextAreaInput)
     | 'slider'     // Slider (SliderInput)
     | 'select'     // Dropdown (SelectInput)
+    | 'radio'      // Vertical radio group (ShRadio)
     | 'segmented'  // Sliding segmented control (SegmentedControl)
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)
@@ -48,6 +60,8 @@ export interface SelectOption {
     label?: string;
     /** i18n key for translation — takes precedence over label */
     labelKey?: string;
+    /** i18n key for an optional sub-description line (radio groups only) */
+    descriptionKey?: string;
     /** Optional condition — when provided, the option is only shown if this returns true */
     condition?: (ctx: SettingContext) => boolean;
 }
@@ -73,7 +87,7 @@ export interface SettingOptions {
     max?: number;
     step?: number;
     fixed?: number;         // Decimal places for slider
-    disableable?: boolean;  // Allow -1 to disable
+    disableable?: boolean;  // Allow -1000 to disable
     customText?: string | ((value: number) => string); // Custom display text for slider
     multiple?: number;      // Multiplier for display value
     nullable?: boolean;     // Allow null for color inputs

@@ -16,7 +16,7 @@ import { clearPersistentPrefix, listPersistentKeys, makeHashedStorageKey, readPe
 import { getModuleRegexScripts } from "../process/modules"
 import { getNodetextToSentence, sleep } from "../util"
 import { processScriptFull } from "../process/scripts"
-import sendSound from '../../etc/send.mp3'
+import { playNotificationSound } from '../notificationSound'
 
 let cache={
     origin: [''],
@@ -151,7 +151,9 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
                 "Authorization": "DeepL-Auth-Key " + db.deeplOptions.key,
                 "Content-Type": "application/json"
             },
-            body: body
+            body: body,
+            logCategory: 'translate',
+            logSource: 'translate',
         })
 
         if(!f.ok){
@@ -187,7 +189,7 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
         if(db.deeplXOptions.token.trim() !== '') { headers["Authorization"] = "Bearer " + db.deeplXOptions.token}
         
         //Since the DeepLX API is non-CORS restricted, we can use the plain fetch function
-        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true })
+        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true, logCategory: 'translate', logSource: 'translate' })
 
         if(!f.ok){ return 'ERR::DeepLX API Error' + (await f.data) }
 
@@ -214,6 +216,8 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
                         "Accept": "*/*",
                     },
                     method: "GET",
+                    logCategory: 'translate',
+                    logSource: 'translate',
                 })
                 const parser = new DOMParser()
                 const dom = parser.parseFromString(d.data, 'text/html')
@@ -302,10 +306,10 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     if(db.translatorType === 'llm'){
         const tr = db.translator || 'en'
         const from = db.translatorInputLanguage
-        const r = await translateLLM(html, {to: tr, from: from, regenerate})
-        if(db.playMessageOnTranslateEnd){
-            const audio = new Audio(sendSound);
-            audio.play().catch(() => {});
+        let translated = false
+        const r = await translateLLM(html, {to: tr, from: from, regenerate, onCacheState: (cached) => { translated = !cached }})
+        if(translated && db.playMessageOnTranslateEnd){
+            playNotificationSound(db.translateSound, db.translateSoundVolume)
         }
 
         return applyEdittransRegex(r, charArg, alwaysExistChar)
@@ -517,17 +521,24 @@ function needSuperChunkedTranslate(){
     return getDatabase().translatorType === 'deeplX'
 }
 
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, onCacheState?:(cached:boolean) => void}):Promise<string>{
     if(!arg.regenerate){
         const cacheMatch = llmTranslateCache.get(text)
         if(cacheMatch){
+            arg.onCacheState?.(true)
             return cacheMatch
         }
         const persistedCacheMatch = await getPersistentLLMCache(text)
         if (persistedCacheMatch !== null) {
+            arg.onCacheState?.(true)
             return persistedCacheMatch
         }
     }
+    // The cache is looked up (above) with the original text, so it must be stored
+    // under the same key. `text` gets mutated below for the request; storing under
+    // the mutated string made every <style>-bearing message a permanent cache miss
+    // that re-billed the LLM and piled up orphan entries.
+    const cacheKey = text
     const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
     let styleDecodes:string[] = []
     text = text.replace(styleDecodeRegex, (match, p1) => {
@@ -589,8 +600,9 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     const result = rq.result.replace(/<style-data style-index="(\d+)" ?\/?>/g, (match, p1) => {
         return styleDecodes[parseInt(p1)] ?? ''
     }).replace(/<\/style-data>/g, '')
-    llmTranslateCache.set(text, result)
-    void setPersistentLLMCache(text, result)
+    llmTranslateCache.set(cacheKey, result)
+    void setPersistentLLMCache(cacheKey, result)
+    arg.onCacheState?.(false)
     return result
 }
 
@@ -669,7 +681,13 @@ function applyEdittransRegex(
       if (charArg === '') return text
 
       let scripts: customscript[] = []
-      scripts = (getModuleRegexScripts() ?? []).concat(alwaysExistChar?.customscript ?? [])
+      // Preset-level regex scripts count too, otherwise an 'edittrans' script
+      // registered on a preset silently never runs. (Order stays preset -> module ->
+      // char, which differs from processScriptFull; left as-is to avoid changing
+      // which script wins on overlapping matches.)
+      scripts = (getDatabase().presetRegex ?? [])
+          .concat(getModuleRegexScripts() ?? [])
+          .concat(alwaysExistChar?.customscript ?? [])
 
       for (const script of scripts) {
           if (script.type === 'edittrans') {

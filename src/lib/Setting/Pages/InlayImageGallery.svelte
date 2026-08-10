@@ -9,7 +9,7 @@
   import ShSelect from '../../UI/GUI/ShSelect.svelte'
 
   import { language } from 'src/lang'
-  import { SizeStore } from 'src/ts/stores.svelte'
+  import { SizeStore, InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
   import { alertConfirm, notifySuccess, notifyError } from 'src/ts/alert'
   import { downloadFile } from 'src/ts/globalApi.svelte'
   import {
@@ -28,7 +28,6 @@
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
 
-  let submenu = $state(0)
 
   const PAGE_SIZE = 40
 
@@ -167,6 +166,15 @@
     return fallback.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
   }
 
+  function withExtension(name: string, ext: string): string {
+    const safeExt = (ext ?? '').trim() || 'bin'
+    const lowerName = name.toLowerCase()
+    if (lowerName.endsWith(`.${safeExt.toLowerCase()}`)) return name
+    const lastDot = name.lastIndexOf('.')
+    const base = lastDot > 0 ? name.slice(0, lastDot) : name
+    return `${base}.${safeExt}`
+  }
+
   function revokeViewerUrl() {
     viewerUrl = ''
   }
@@ -214,7 +222,7 @@
         return
       }
       const buffer = new Uint8Array(await asset.data.arrayBuffer())
-      await downloadFile(sanitizeFileName(item.name), buffer)
+      await downloadFile(sanitizeFileName(withExtension(asset.name, asset.ext)), buffer)
       notifySuccess(language.successExport)
     } catch (error) {
       notifyError(`${error}`)
@@ -351,11 +359,11 @@
       <SettingTabs tabs={[
         { label: language.playground.inlayImageList, value: 0 },
         { label: language.settings, value: 1 },
-      ]} bind:selected={submenu} />
+      ]} bind:selected={$InlayGallerySubmenuIndex} />
     </SettingPage>
   </div>
 
-  {#if submenu === 1}
+  {#if $InlayGallerySubmenuIndex === 1}
     <div class="flex-1 min-h-0 overflow-y-auto">
       <SettingRenderer items={inlayImageSettingsItems} />
     </div>
@@ -633,6 +641,9 @@
               {currentViewerItem?.name ?? viewerId}
             </p>
             <p class="text-white/30 text-xs font-mono break-all leading-snug">{viewerId}</p>
+            {#if currentViewerItem?.ext}
+              <p class="text-white/50 text-xs uppercase font-mono">.{currentViewerItem.ext}</p>
+            {/if}
             {#if currentViewerItem?.width && currentViewerItem?.height}
               <p class="text-white/50 text-xs">{currentViewerItem.width} × {currentViewerItem.height} px</p>
             {/if}

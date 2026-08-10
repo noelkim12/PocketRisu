@@ -1,5 +1,6 @@
 import { tokenizeAccurate } from "../tokenizer";
 import { getDatabase, presetTemplate, setDatabase } from "../storage/database.svelte";
+import { v4 as uuidv4 } from "uuid";
 import { alertError, notifySuccess } from "../alert";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
 
@@ -16,11 +17,13 @@ export type PromptSettings = {
     trimStartNewChat?: boolean
 }
 
+export type PromptRole = 'user'|'bot'|'system'
+
 export interface PromptItemPlain {
     type: 'plain'|'jailbreak'|'cot';
     type2: 'normal'|'globalNote'|'main'
     text: string;
-    role: 'user'|'bot'|'system';
+    role: PromptRole;
     name?: string
 }
 
@@ -33,6 +36,7 @@ export interface PromptItemChatML {
 export interface PromptItemTyped {
     type: 'persona'|'description'|'lorebook'|'postEverything'|'memory'
     innerFormat?: string,
+    role2?: PromptRole
     name?: string
 }
 
@@ -40,6 +44,7 @@ export interface PromptItemAuthorNote {
     type : 'authornote'
     innerFormat?: string
     defaultText?: string
+    role2?: PromptRole
     name?: string
 }
 
@@ -83,6 +88,16 @@ export async function tokenizePreset(prompts:PromptItem[], consti:boolean = fals
         }
     }
     return total
+}
+
+function normalizeImportedPromptRole(role: unknown): PromptRole {
+    if(role === 'user' || role === 'bot' || role === 'system'){
+        return role
+    }
+    if(role === 'assistant' || role === 'char'){
+        return 'bot'
+    }
+    return 'system'
 }
 
 export function detectPromptJSONType(text:string){
@@ -158,7 +173,7 @@ export function stChatConvert(pre:any){
                         type: 'plain',
                         type2: 'main',
                         text: p.content ?? "",
-                        role: p.role ?? "system"
+                        role: normalizeImportedPromptRole(p.role)
                     })
                     break
                 }
@@ -168,7 +183,7 @@ export function stChatConvert(pre:any){
                         type: 'jailbreak',
                         type2: 'normal',
                         text: p.content ?? "",
-                        role: p.role ?? "system"
+                        role: normalizeImportedPromptRole(p.role)
                     })
                     break
                 }
@@ -212,7 +227,7 @@ export function stChatConvert(pre:any){
                         type: 'plain',
                         type2: 'normal',
                         text: p.content ?? "",
-                        role: p.role ?? "system"
+                        role: normalizeImportedPromptRole(p.role)
                     })
                 }
             }
@@ -275,6 +290,7 @@ export const OobaParams = [
 
 export function promptConvertion(files:{ name: string, content: string, type:string }[]){
     let preset = safeStructuredClone(presetTemplate)
+    preset.id = uuidv4()
     let instData = {
         "system_prompt": "",
         "input_sequence": "",

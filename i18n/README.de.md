@@ -43,6 +43,7 @@ PocketRisu ist eine selbstgehostete KI-Rollenspiel-Chat-Plattform, die Sie auf I
 - [Installationsanleitung](../docs/de/install.md)
 - [RisuAI-Migrationsleitfaden](../docs/de/migration.md)
 - [Fernzugriff](../docs/de/remote.md)
+- [Termux-Installationsanleitung (Android)](../docs/de/termux.md)
 
 
 ## RisuAI-Kompatibilität
@@ -61,6 +62,7 @@ Für die Migration von einer bestehenden RisuAI-Installation siehe den [Migratio
 
 - **Mehrere KI-Anbieter**: OpenAI, Claude, Gemini, DeepInfra, OpenRouter, Ollama und mehr
 - **Mehrgerätezugriff**: Einen Server betreiben und von PC, Tablet und Smartphone über einen Webbrowser zugreifen
+- **Serverseitige Generierung**: Der Server generiert weiter, auch wenn der Bildschirm ausgeht oder die Verbindung abbricht — nach dem erneuten Verbinden wird die fertige Antwort automatisch wiederhergestellt
 - **Vereinheitlichte Datenspeicherung**: Alle Daten (Charaktere, Chats, Einstellungen, Inlay-Bilder) werden in einer einzigen SQLite-Datenbank auf Ihrem Server gespeichert (keine externe Cloud-Abhängigkeit)
 - **Einfaches serverseitiges Backup**: Der Server verwaltet Backup und Wiederherstellung direkt; lokaler `.bin`-Backup-Export und -Import werden ebenfalls unterstützt
 - **Leistungsstarkes Dashboard**: Festplattennutzung (pro Charakter / pro Modul), wiederherstellbarer Snapshot-Speicher, SQLite-Optimierung und mehr — alles in einem Bildschirm

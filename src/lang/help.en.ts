@@ -94,17 +94,21 @@ export const helpEn = {
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
         showUnrecommended: "If enabled, it will show unrecommended, deprecated settings. it is NOT RECOMMENDED to use these settings.",
+        streamingDisplayOptimizationMode:
+            "Controls how the screen updates while streaming to reduce lag.",
+        moduleModelBindingEnable: "Use the assigned model preset for requests a module sends itself (scripts and triggers). When off, those requests use the chat's own main/sub model settings.",
         allowV2Plugin: "Warning: This enables deprecated V2.0 plugin execution. V2.0 plugins bypass the V2.1 safety check and may be unsafe. Leave this disabled unless you explicitly trust the plugin and cannot migrate it to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         inlayImageLossless: "If enabled, inlay images will be saved as lossless PNG instead of compressed WebP. This preserves original quality but uses significantly more storage.",
         inlayImagePriority: "If enabled, inlays render as images first for faster loading. Video/audio inlays auto-switch after image load fails. Disable if you use many video/audio inlays.",
+        modelModeLock: "Choose how chats pick their model system. Lock everything to the legacy model system or to the model preset binding system, or leave it unlocked so each chat decides.",
+        newChatModelMode: "Which model system new chats start in when the mode is not locked.",
         showModelInSidebar: "Show the current AI model name in the sidebar for quick reference.",
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
+        enableEbookReader: "Enable the ebook-style reader overlay and its chat menu shortcut.",
         disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
         disableToggleBinding: "Disable the toggle binding feature that pins toggle values to individual chats. When disabled, the bind/save/preset buttons are hidden and previously bound values are not restored on chat switch.",
-        hideLoadout: "Hide the loadout feature. Loadouts let you save and restore preset/module/persona combinations. When hidden, the loadout hotkey (Ctrl+O) and quick menu entry are also disabled.",
-        hideEasyPanel: "Hide the Easy Panel menu entry. The Easy Panel itself is part of Pro Tools, but this option hides its button from the chat menu and settings sidebar independently.",
         useExperimental: "If enabled, it will show some experimental features.",
         forceProxyAsOpenAI: "If enabled, it will force to use OpenAI format when using reverse proxy.",
         forcePlainFetch: "If enabled, it will use the browser Fetch API instead of the native HTTP request. This can cause CORS errors.",
@@ -115,6 +119,8 @@ export const helpEn = {
         genTimes:
             "This option is used to set the number of responses to generate on support models. other then first response will be act as cached reroll. this can reduce the cost of the model, but it can also increase the cost if you use it without reroll.",
         requestretrys: "This option is used to set the number of request retrys when request fails.",
+        chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
+        chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
         emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
         additionalParams:
             'Additional parameters that would be added to the request body. if you want to exclude some parameters, you can put `{{none}}` to the value. if you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. if you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
@@ -157,7 +163,7 @@ export const helpEn = {
             "Namespace is a unique identifier for the module. it is used to prevent conflicts between modules, and for interaction of presets, other modules and etc. if you are not sure what to put, leave it blank.",
         moduleIntergration:
             "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
-        customCSS: "Custom CSS for styling. you can also disable/enable it by pressing (Ctrl + .) if something goes wrong.",
+        customCSS: "Custom CSS for styling.",
         betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",
         enableScrollToActiveChar: "If enabled, pressing the hotkey or holding Ctrl while dragging a character will scroll to the currently active character. Folders will be opened automatically if closed.",
         unrecommended: "This is a unrecommended setting. it is not recommended to use this setting.",
@@ -181,8 +187,7 @@ export const helpEn = {
             "Here, you can add a unique translation prompt for each character. This option only applies when using the Ax. model for translation. To apply it, include `{{slot::tnote}}` in the language settings. It doesn't work in group chats.",
         groupInnerFormat:
             "This defines a format that is used in group chat for characters that isn't speaker. if it is not blank, it will use this format instead of the default format. if `Group Other Bot Role` is `assistant`, it will also be applied to the speaker.",
-        chatHTML:
-            "A HTML that would be inserted as each chat.\n\nYou can use CBS and special tags.\n- `<risutextbox>`: a textbox that would be used to render text\n- `<risuicon>`: an icon for user or assistant\n- `<risubuttons>`: icon buttons for chat edit, translations and etc.\n- `<risugeninfo>`: generation information button.",
+        chatHTML: "A HTML that would be inserted as each chat.",
         systemContentReplacement: "The prompt format that replaces system prompt if the model doesn't support system prompt.",
         systemRoleReplacement: "The role that replaces system role if the model doesn't support system role.",
         summarizationPrompt:
@@ -207,7 +212,7 @@ export const helpEn = {
         dynamicMemory: "When enabled, assistant will make memory notes on response time. additional prompting is required to utilize this feature.",
         dynamicResponseTiming: "When enabled, it will adjust the response timing dynamically.",
         dynamicRequest: "When enabled, it will request to model at random timing without waiting for user input.",
-        settingsCloseButtonSize: "Adjusts the size of the close (X) button in the top right corner of the settings window. Default is 24.",
+        settingsCloseButtonSize: "Size of the settings close button.",
         showTypingEffect: "When enabled, it will show a typing indicator while the assistant is generating a response.",
         dynamicOutputPrompt: "When enabled, the schema information will be included in the request.",
         realmDirectOpen: "If enabled, clicking a character in RisuRealm preview will directly open the character description.",
@@ -253,6 +258,8 @@ export const helpEn = {
             "If enabled, user messages are excluded from the max messages per summary count.",
         hypaV3EnableSimilarityCorrection:
             "If enabled, a summary of recent chats is additionally used as a query. Does not work with the experimental HypaMemory V3.",
+        hypaV3SummaryChunkSeparator:
+            "Separator used to split summaries into chunks for similarity search.",
         hypaV3UseExperimentalImpl:
             "Switches to the experimental HypaMemory V3 implementation. Enables rate limit settings and changes the query method.",
         hypaV3AlwaysToggleOn:
@@ -262,6 +269,12 @@ export const helpEn = {
             "- When on, past messages are automatically summarized into long-term memory once the context fills up, and relevant summaries are pulled back into later responses.\n" +
             "- When off, messages beyond the context window are simply truncated and never reach the model.\n\n" +
             "This setting is stored per-chat (independent of the character default), so other chats with the same character are unaffected. Tune the summarization behavior itself under HypaV3 in the preset.",
+        useModelPresetBinding:
+            "Bind a model preset to this chat.\n\n" +
+            "On : Use a model preset, binding a model per chat.\n" +
+            "Off : Use the existing chatbot settings. (default)",
+        promptPresetParams:
+            "When this chat sends its main request through a model preset, the sampling parameters of the currently applied prompt preset (Temperature, Top P, penalties, etc.) override the model preset's parameters.\n\n- Applies to this chat only, and only to the main model request (not sub/auxiliary models).\n- Only parameters the model preset actually supports are overridden. Output token caps (max tokens) and thinking settings are properties of the model, so the model preset always decides them.\n- Values you set explicitly in the model preset's custom body / additional parameters still take priority.\n- In classic model mode, prompt preset parameters already apply, so this option has no effect there.",
         hypaV3SummarizationRequestsPerMinute:
             "Maximum summarization model requests per minute. Only applies when the summarization model is set to Auxiliary Model.",
         hypaV3SummarizationMaxConcurrent:
@@ -273,56 +286,36 @@ export const helpEn = {
         hypaV3QueryChatCount:
             "The number of recent chat messages used as the query for similarity search. " +
             "Higher values use more chat context to determine similarity.",
-        useNodeOnlyScrollButton:
-            "Shows navigation buttons to jump between chat messages while scrolling. Buttons appear on scroll and fade out after 1.5 seconds.",
-        confirmReroll:
-            "Ask for confirmation before regenerating a message. Enable this if you want protection against accidentally losing a response.",
-        sendWithEnter:
-            "Send the message with Enter. When disabled, Shift+Enter becomes the send shortcut and Enter inserts a newline.",
-        fixedChatTextarea:
-            "Keep the chat input area at a fixed height. When disabled, the input grows automatically as you type more lines.",
-        clickToEdit:
-            "Enter edit mode immediately when clicking a chat message. When disabled, use the separate edit button.",
-        enableBlockPartialEdit:
-            "Show per-block edit controls when hovering over a paragraph/block in a message. Useful when you only want to fix one part of a long response.",
-        longPressToPopupEditor:
-            "Open the popup editor when long-pressing a message. This is mainly for easier editing on mobile screens.",
-        enableDragPartialEdit:
-            "Allow editing only the text selected by dragging inside a message. Can be used together with block partial edit.",
-        botSettingAtStart:
-            "Open the bot settings page automatically whenever the app starts. Leave this off if you prefer going straight to chat.",
-        showMenuChatList:
-            "Show the current character's chat list directly in the sidebar menu. When off, the list is one level deeper.",
-        showMenuHypaMemoryModal:
-            "Show a sidebar button that opens the HypaMemory (HypaV3) management modal. Useful if you review long-term memory often.",
-        goCharacterOnImport:
-            "After importing a character card, switch to that character automatically. When off, you stay on the current screen.",
-        sideMenuRerollButton:
-            "Show a regenerate/reroll button in the chat side menu, in addition to the normal message controls.",
+        nodeOnlyScrollButtonType: "How the chat scroll buttons are shown. 4 Buttons adds jump-to-top and jump-to-bottom controls; 2 Buttons keeps only previous/next message navigation; Off hides them.",
+        nodeOnlyServerSideRequests: "The server sends requests on your behalf and preserves the response. Generation continues even if the screen turns off or the connection drops, and the response is recovered automatically when you return. This only applies to model preset requests; turning it off restores the previous direct-request behavior.",
+        confirmReroll: "Ask for confirmation before regenerating a message.",
+        sendWithEnter: "Send the message with Enter.",
+        sendKeyPC: "Which key sends a message on desktop.",
+        sendKeyMobile: "How messages are sent on mobile.",
+        fixedChatTextarea: "Pin the chat input to the bottom of the screen so it stays in place while scrolling.",
+        clickToEdit: "Enter edit mode immediately when clicking a chat message.",
+        enableBlockPartialEdit: "Show per-block edit controls when hovering over a paragraph/block in a message.",
+        longPressToPopupEditor: "Open the popup editor when long-pressing a message.",
+        showInputActionBar: "Show a bottom toolbar on multiline text fields with copy, reset, and expand-to-editor buttons.",
+        enableDragPartialEdit: "Allow editing only the text selected by dragging inside a message.",
+        botSettingAtStart: "Open the bot settings page automatically whenever the app starts.",
+        showMenuChatList: "Show the current character's chat list directly in the sidebar menu.",
+        showMenuHypaMemoryModal: "Show a sidebar button that opens the HypaMemory (HypaV3) management modal.",
+        goCharacterOnImport: "After importing a character card, switch to that character automatically.",
+        sideMenuRerollButton: "Show a regenerate/reroll button in the chat side menu.",
         localActivationInGlobalLorebook:
             "Allow global lorebooks to use local activation options such as activating only for the current character.",
-        requestInfoInsideChat:
-            "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area. Useful for debugging and prompt review.",
-        inlayErrorResponse:
-            "When a model request fails, show the error as an inlaid chat response. When off, errors are only shown as separate notifications.",
-        bulkEnabling:
-            "Show buttons in the lorebook editor for enabling or disabling multiple entries at once. Useful for large lorebooks.",
-        showTranslationLoading:
-            "Show a loading indicator while message translation is in progress. Helpful when using slow LLM-based translators.",
-        autoScrollToNewMessage:
-            "Automatically scroll to a newly arrived message. When off, the viewport stays put while you review older messages.",
-        alwaysScrollToNewMessage:
-            "Always scroll down when a new message arrives, even if you have manually scrolled upward. Only applies when auto-scroll is enabled.\n\nWhen off, Risu shows a \"new message\" button instead of stealing the scroll position.",
-        newMessageButtonStyle:
-            "Choose where and how the \"new message\" button appears. This matters when auto-scroll is enabled but always-scroll is disabled.\n\nOptions include bottom center, bottom right, bottom left, floating circle, right middle, and top bar.",
+        requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
+        inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
+        bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
+        showTranslationLoading: "Show a loading indicator while message translation is in progress.",
+        autoScrollToNewMessage: "Automatically scroll to a newly arrived message.",
+        alwaysScrollToNewMessage: "Always scroll down when a new message arrives, even if you have manually scrolled upward.",
+        newMessageButtonStyle: "Choose where and how the \"new message\" button appears.",
         createFolderOnBranch:
             "Automatically create a folder when branching a chat, grouping the original and branched chats together.",
-        hamburgerButtonBottom:
-            "Move the hamburger/menu button to the bottom of the sidebar. This can make one-handed use easier on mobile or small screens.",
-        hideLeftBarCollapseButton:
-            "Hide the toggle button that collapses the left character grid bar on narrow screens (under 400px). Enable this if you prefer to keep the left bar always visible on mobile.",
-        enableRisuaiProTools:
-            "Enable Pro Tools such as Easy Panel. Some PocketRisu features require this separate toggle.",
+        hamburgerButtonBottom: "Move the hamburger/menu button to the bottom of the sidebar.",
+        hideLeftBarCollapseButton: "Hide the toggle button that collapses the left character grid bar on narrow screens (under 400px).",
         loreBookDepth:
             "Number of previous messages to scan for lorebook activation keywords. `0` disables scanning; higher values can find older keywords but may activate unnecessary lore. (0-20)",
         loreBookToken:
@@ -387,40 +380,23 @@ export const helpEn = {
             "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2/V3 for new work. Keep this only for legacy V1 compatibility.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
-        theme:
-            "Overall chat layout theme.\n\n- **PocketRisu Standard**: default PocketRisu design\n- **Standard Risu**: original RisuAI layout\n- **Waifulike**: character-art-focused layout with side character visuals\n- **Mobile Chat**: mobile chat style\n- **CardBoard**: card-style layout\n- **Custom HTML**: use the custom Chat HTML below",
-        waifuWidth:
-            "Width of the character illustration in the Waifulike theme (50-200%). `100%` is the default. Only shown for Waifulike.",
-        waifuWidth2:
-            "Width of the second character or secondary visual in the Waifulike theme (20-150%). Set close to 0 if you want to hide it for a single-character setup.",
-        nodeOnlyStandardChatWidth:
-            "Maximum chat card width in the PocketRisu Standard theme.\n\n- **Standard**: 768px (default)\n- **Wide**: 1152px\n- **No Limit**: fills the available chat area\n\nOnly shown for the PocketRisu Standard theme.",
-        colorScheme:
-            "Color palette used across the Risu UI (background, text, accents). Independent of the Theme (layout) option above. Pick **Custom** to define your own colors in the editor that appears below.",
-        textColor:
-            "Message text color theme.\n\n- **Classic Risu**: classic tone\n- **High Contrast**: readability first\n- **Custom**: use custom colors",
-        font:
-            "Message font.\n\n- **Default**: system default\n- **Times New Roman**: useful for English-heavy text\n- **Custom**: use the custom font name field below",
-        customFont:
-            "Font name to use. Enter an installed system font or web font family name, such as `Pretendard` or `Noto Sans KR`.",
-        UISize:
-            "Global UI zoom scale (50-200%). `100%` is the default. Increase for mobile or accessibility; very large values reduce available width.",
-        lineHeight:
-            "Line height for message text (0.5-3). Larger values are easier to read but fit less text on screen.",
-        iconSize:
-            "Character/persona icon size (50-200%). Increase if icons are hard to see, decrease to save screen space.",
-        textAreaSize:
-            "Size step for the chat input area (-5 to +5). `0` is default. Larger values show more input text; smaller values leave more room for chat.",
-        textAreaTextSize:
-            "Text size step inside the chat input (0-3). Larger text is easier to read, smaller text fits more content.",
-        sideBarSize:
-            "Sidebar width step (0-3). `0` is narrowest, `3` is widest. Small values are good for mobile; `1` or `2` suits many desktops.",
-        assetWidth:
-            "Maximum width for in-chat asset images (`{{image::...}}`) in rem units.\n\n- **-1**: unlimited, use original image size\n- **0**: hide\n- **1-40**: cap maximum width\n\nUse this to prevent large images from overwhelming the chat.",
-        animationSpeed:
-            "UI animation speed multiplier (0-1). `0` makes transitions instant; `1` is default. Lower this on slow devices or if animations feel distracting.",
-        memoryLimitThickness:
-            "Thickness in pixels of the memory-limit line shown when Show Memory Limit is enabled (1-500). The line visualizes the max-context cutoff in chat.",
+        theme: "Overall chat layout theme.",
+        waifuWidth: "Width of the character illustration in the Waifulike theme.",
+        waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
+        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
+        colorScheme: "Color palette used across the Risu UI.",
+        textColor: "Message text color theme.",
+        font: "Message font.",
+        customFont: "Font name to use.",
+        UISize: "Global UI zoom scale.",
+        lineHeight: "Line height for message text.",
+        iconSize: "Character/persona icon size.",
+        textAreaSize: "Height step for editing text boxes (character, lorebook, prompt, etc.). Does not affect the chat input.",
+        textAreaTextSize: "Text size step inside those editing text boxes. Does not affect the chat input.",
+        sideBarSize: "Sidebar width step.",
+        assetWidth: "Maximum width for in-chat asset images.",
+        animationSpeed: "UI animation speed multiplier.",
+        memoryLimitThickness: "Thickness of the memory-limit line.",
         fullscreen:
             "Switch the browser into fullscreen mode. On mobile, this can hide browser UI such as the address bar and give the chat more space.",
         showMemoryLimit:
@@ -429,8 +405,9 @@ export const helpEn = {
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         showFolderNameInIcon:
             "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
-        customBackground:
-            "Use a custom image as the chat background. Enabling this opens a file picker; turning it off removes the custom background.",
+        showRequestStatus:
+            "Show a floating toast during model-preset requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
+        customBackground: "A custom image used as the chat background.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
         roundIcons:
@@ -587,6 +564,12 @@ export const helpEn = {
             "Custom models are powered by a plugin. Pick the plugin provider that should generate responses. If the plugin is disabled the response will come back empty.",
         maxContextSize:
             "Maximum input tokens to send to the model. Going over the model's own limit (e.g. 128K for GPT-4o) causes errors, so keep it within bounds. Larger values increase input cost.",
+        profileVisibilityLevel:
+            "Hide outdated or deprecated model profiles from the catalog list and update notices.",
+        useCustomRegistry:
+            "Download model profiles from your own registry fork or branch instead of the official one.",
+        customRegistryUrl:
+            "An https base URL ending in a slash; index.json and catalog.json are fetched from it. An empty or non-https URL is rejected.",
         maxResponseSize:
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:

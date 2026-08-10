@@ -5,7 +5,7 @@
     import { language } from "src/lang";
     import Help from "src/lib/Others/Help.svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { DBState, OtherBotSubmenuIndex, selectedCharID } from 'src/ts/stores.svelte';
+    import { DBState, selectedCharID, OtherBotsSubmenuIndex } from 'src/ts/stores.svelte';
     import { saveAsset, downloadFile, globalFetch } from "src/ts/globalApi.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -227,9 +227,9 @@
     { label: 'TTS', value: 1 },
     { label: language.emotionImage, value: 2 },
     { label: language.imageGeneration, value: 3 },
-]} bind:selected={$OtherBotSubmenuIndex} />
+]} bind:selected={$OtherBotsSubmenuIndex} />
 
-{#if $OtherBotSubmenuIndex === 3}
+{#if $OtherBotsSubmenuIndex === 3}
     <Accordion name={language.imageGeneration} styled disabled>
         <span class="text-textcolor mt-2">{language.imageGeneration} {language.provider} <Help key="sdProvider"/></span>
         <SelectInput className="mt-2 mb-4" bind:value={DBState.db.sdProvider}>
@@ -932,7 +932,7 @@
     </Accordion>
 {/if}
 
-{#if $OtherBotSubmenuIndex === 1}
+{#if $OtherBotsSubmenuIndex === 1}
 <Accordion name="TTS" styled disabled>
     <span class="text-textcolor mt-2">Auto Speech <Help key="ttsAutoSpeech"/></span>
     <CheckInput className="mt-2" bind:check={DBState.db.ttsAutoSpeech}/>
@@ -958,7 +958,7 @@
 </Accordion>
 {/if}
 
-{#if $OtherBotSubmenuIndex === 2}
+{#if $OtherBotsSubmenuIndex === 2}
 <Accordion name={language.emotionImage} styled disabled>
     <span class="text-textcolor mt-2">{language.emotionMethod} <Help key="emotionMethod"/></span>
 
@@ -969,7 +969,7 @@
 </Accordion>
 {/if}
 
-{#if $OtherBotSubmenuIndex === 0}
+{#if $OtherBotsSubmenuIndex === 0}
     <Accordion name={language.longTermMemory} styled disabled>
         <span class="text-textcolor mt-4">{language.type} <Help key="memType"/></span>
 
@@ -1143,6 +1143,8 @@
                 <NumberInput className="mt-2" marginBottom min={1} bind:value={settings.maxChatsPerSummary} />
                 <span class="text-textcolor">{language.hypaV3Settings.queryChatCountLabel} <Help key="hypaV3QueryChatCount"/></span>
                 <NumberInput className="mt-2" marginBottom min={1} max={20} bind:value={settings.queryChatCount} />
+                <span class="text-textcolor">{language.hypaV3Settings.summaryChunkSeparatorLabel} <Help key="hypaV3SummaryChunkSeparator"/></span>
+                <TextInput className="mt-2" marginBottom bind:value={settings.summaryChunkSeparator} />
                 <span class="text-textcolor">{language.hypaV3Settings.recentMemoryRatioLabel} <Help key="hypaV3RecentMemoryRatio"/></span>
                 <SliderInput className="mt-2" marginBottom min={0} max={1} step={0.01} fixed={2} bind:value={settings.recentMemoryRatio} />
                 <span class="text-textcolor">{language.hypaV3Settings.similarMemoryRatioLabel} <Help key="hypaV3SimilarMemoryRatio"/></span>
@@ -1171,14 +1173,22 @@
                         <Help key="hypaV3AlwaysToggleOn"/>
                     </div>
                     {#if settings.useExperimentalImpl}
-                        <span class="text-textcolor">Summarization Requests Per Minute <Help key="hypaV3SummarizationRequestsPerMinute"/></span>
-                        <NumberInput className="mt-2" marginBottom min={1} bind:value={settings.summarizationRequestsPerMinute} />
-                        <span class="text-textcolor">Summarization Max Concurrent <Help key="hypaV3SummarizationMaxConcurrent"/></span>
-                        <NumberInput className="mt-2" marginBottom min={1} max={10} bind:value={settings.summarizationMaxConcurrent} />
-                        <span class="text-textcolor">Embedding Requests Per Minute <Help key="hypaV3EmbeddingRequestsPerMinute"/></span>
-                        <NumberInput className="mt-2" marginBottom min={1} bind:value={settings.embeddingRequestsPerMinute} />
-                        <span class="text-textcolor">Embedding Max Concurrent <Help key="hypaV3EmbeddingMaxConcurrent"/></span>
-                        <NumberInput className="mt-2" marginBottom min={1} max={10} bind:value={settings.embeddingMaxConcurrent} />
+                        <div>
+                            <span class="text-textcolor">Summarization Requests Per Minute <Help key="hypaV3SummarizationRequestsPerMinute"/></span>
+                            <NumberInput className="mt-2" marginBottom min={1} bind:value={settings.summarizationRequestsPerMinute} />
+                        </div>
+                        <div>
+                            <span class="text-textcolor">Summarization Max Concurrent <Help key="hypaV3SummarizationMaxConcurrent"/></span>
+                            <NumberInput className="mt-2" marginBottom min={1} max={10} bind:value={settings.summarizationMaxConcurrent} />
+                        </div>
+                        <div>
+                            <span class="text-textcolor">Embedding Requests Per Minute <Help key="hypaV3EmbeddingRequestsPerMinute"/></span>
+                            <NumberInput className="mt-2" marginBottom min={1} bind:value={settings.embeddingRequestsPerMinute} />
+                        </div>
+                        <div>
+                            <span class="text-textcolor">Embedding Max Concurrent <Help key="hypaV3EmbeddingMaxConcurrent"/></span>
+                            <NumberInput className="mt-2" marginBottom min={1} max={10} bind:value={settings.embeddingMaxConcurrent} />
+                        </div>
                     {:else}
                         <div class="mb-2 flex items-center">
                             <Check name={language.hypaV3Settings.enableSimilarityCorrectionLabel} bind:check={settings.enableSimilarityCorrection} />

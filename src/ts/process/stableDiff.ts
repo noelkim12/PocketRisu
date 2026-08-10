@@ -184,6 +184,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         uri.pathname = '/sdapi/v1/txt2img'
         try {
             const da = await globalFetch(uri.toString(), {
+                logCategory: 'image',
+                logSource: 'image',
                 body: {
                     "width": db.sdConfig.width,
                     "height": db.sdConfig.height,
@@ -474,7 +476,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             failMessage: 'NovelAI image generation failed',
             isSuccess: (result) => result !== false && result !== '',
         }, async () => {
-            const da = await globalFetch(db.NAIImgUrl, reqlist)   
+            const da = await globalFetch(db.NAIImgUrl, { ...reqlist, logCategory: 'image', logSource: 'image' })
 
             if(returnSdData === 'inlay'){
                 if(da.ok){
@@ -509,6 +511,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
     }
     if(db.sdProvider === 'dalle'){
         const da = await globalFetch("https://api.openai.com/v1/images/generations", {
+            logCategory: 'image',
+            logSource: 'image',
             body: {
                 "prompt": genPrompt,
                 "model": "dall-e-3",
@@ -682,6 +686,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
 
         const res = await globalFetch('https://fal.run/' + model, {
+            logCategory: 'image',
+            logSource: 'image',
             headers: {
                 "Authorization": "Key " + token,
                 "Content-Type": "application/json"
@@ -738,6 +744,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${db.google.accessToken}`
 
         const res = await globalFetch(url, {
+            logCategory: 'image',
+            logSource: 'image',
             headers: {
                 "Content-Type": "application/json"
             },
@@ -787,6 +795,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
 
         const da = await globalFetch(config.url, {
+            logCategory: 'image',
+            logSource: 'image',
             body: body,
             headers: headers
         })
@@ -865,6 +875,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             // First: submit task
             const requestEndpoint = `https://api.wavespeed.ai/api/v3/${config.model}`
             const requestResponse = await globalFetch(requestEndpoint, {
+                logCategory: 'image',
+                logSource: 'image',
                 body: body,
                 headers: {
                     "Content-Type": "application/json",

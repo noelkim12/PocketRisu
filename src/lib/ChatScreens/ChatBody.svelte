@@ -77,6 +77,8 @@
         modelShortName: string
         renderIdentityKey?: string
         renderRevisionKey?: string
+        renderRawStreaming?: boolean
+        rawStreamingText?: string
     }
 
     let {
@@ -92,6 +94,8 @@
         modelShortName = '',
         renderIdentityKey,
         renderRevisionKey,
+        renderRawStreaming = false,
+        rawStreamingText = '',
     }: Props =  $props()
 
     // svelte-ignore non_reactive_update
@@ -160,6 +164,8 @@
     function renderChatHtml(markdown: string) {
         return addMetadataToElement(trimMarkdown(markdown), modelShortName)
     }
+
+    let shouldRenderRawStreaming = $derived(renderRawStreaming && !translated && !retranslate)
 
     const markParsing = async (data: string, charArg: string | simpleCharacterArgument, chatID: number, tries?:number) => {
         // track 'translated' and 'retranslate' state
@@ -417,12 +423,19 @@
 
     $effect(() => {
         const generation = ++renderGeneration
-        const currentResult = markParsingResult
 
         if (stageTimer) {
             clearTimeout(stageTimer)
             stageTimer = null
         }
+
+        if (shouldRenderRawStreaming) {
+            stagedHtml = ''
+            stagingActive = false
+            return
+        }
+
+        const currentResult = markParsingResult
 
         currentResult.then(async (parsed) => {
             if (generation !== renderGeneration) {
@@ -440,18 +453,22 @@
     })
 </script>
 
-<span bind:this={visibleRoot} data-risu-chatbody-layer="visible">
-    {@html committedHtml}
-</span>
-
-{#if stagingActive}
-    <span
-        bind:this={stagingRoot}
-        data-risu-chatbody-layer="staging"
-        aria-hidden="true"
-        inert
-        style="position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;contain:layout style paint;"
-    >
-        {@html stagedHtml}
+{#if shouldRenderRawStreaming}
+    <span class="whitespace-pre-wrap">{rawStreamingText}</span>
+{:else}
+    <span bind:this={visibleRoot} data-risu-chatbody-layer="visible">
+        {@html committedHtml}
     </span>
+
+    {#if stagingActive}
+        <span
+            bind:this={stagingRoot}
+            data-risu-chatbody-layer="staging"
+            aria-hidden="true"
+            inert
+            style="position:absolute;width:0;height:0;overflow:hidden;opacity:0;pointer-events:none;contain:layout style paint;"
+        >
+            {@html stagedHtml}
+        </span>
+    {/if}
 {/if}

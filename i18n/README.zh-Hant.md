@@ -43,6 +43,7 @@ PocketRisu 是一個自託管的 AI 角色扮演聊天平臺,您可以在自己�
 - [安裝指南](../docs/zh-Hant/install.md)
 - [RisuAI 遷移指南](../docs/zh-Hant/migration.md)
 - [遠端存取指南](../docs/zh-Hant/remote.md)
+- [Termux 安裝指南 (Android)](../docs/zh-Hant/termux.md)
 
 
 ## RisuAI 相容性
@@ -61,6 +62,7 @@ PocketRisu 衍生自 [RisuAI](https://github.com/kwaroran/RisuAI),針對自託�
 
 - **多種 AI 提供者**:支援 OpenAI、Claude、Gemini、DeepInfra、OpenRouter、Ollama 等
 - **多裝置存取**:執行一個伺服器,透過網頁瀏覽器從 PC、平板和智慧型手機存取
+- **伺服器端生成**:即使螢幕熄滅或連線中斷,伺服器也會繼續生成,重新連線後自動還原完成的回覆
 - **統一資料儲存**:所有資料(角色、對話、設定、插圖)都儲存在伺服器上的單一 SQLite 資料庫中(無需依賴外部雲端服務)
 - **便利的伺服器備份**:伺服器直接處理備份和還原,也支援本地 `.bin` 備份匯出匯入
 - **強大的儀表板**:磁碟使用情況(按角色/模組)、可回收快照空間、SQLite 最佳化等,一屏管理

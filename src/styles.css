@@ -150,6 +150,17 @@
     color: var(--color-gray-400);
   }
 
+  /* Keep the chat composer placeholder on a single line: the textarea height is
+     measured from its (empty) content, so a wrapped placeholder would overflow a
+     1-line box on narrow screens and get clipped. Ellipsis instead. Scoped to the
+     composer only — typed text still wraps normally. */
+  textarea.text-input-area {
+    text-overflow: ellipsis;
+  }
+  textarea.text-input-area::placeholder {
+    white-space: nowrap;
+  }
+
   dialog {
     margin: auto;
   }
@@ -248,6 +259,20 @@ body {
   --risu-theme-success-900: #14532d;
 }
 
+/* Mobile Chrome: with a non-scrollable root (body overflow hidden), the layout
+   viewport that `height: 100%` resolves against freezes at its load-time value
+   and never follows the URL bar hiding/showing — measured on device: ICB stuck
+   at 674px while the visible viewport toggled 704/746px, leaving a background
+   band below the composer. 100dvh tracks the dynamic viewport directly, so the
+   app always fills exactly what is visible. Standalone/PWA and desktop have no
+   dynamic browser UI, where 100dvh === 100% (no behavior change). An explicit
+   db.heightMode still overrides this via updateHeightMode(). */
+@supports (height: 100dvh) {
+  :root {
+    --risu-height-size: 100dvh;
+  }
+}
+
 .x-risu-language-json {
   overflow-x: hidden;
   white-space: pre-wrap;
@@ -320,8 +345,8 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
 /* Track */
@@ -329,30 +354,44 @@ body {
   background: transparent;
 }
 
-/* Handle */
+/* Handle — global auto-hide. Transparent by default; fades in on hover.
+   The tint is a translucent form of the theme's secondary text color, so it
+   adapts to every theme. `visibility`/`opacity` are avoided: on a webkit thumb
+   they make Chrome fall back to the default system gray bar instead of hiding,
+   so we toggle the thumb's background-color instead. */
 ::-webkit-scrollbar-thumb {
-  background: rgba(136, 136, 136, 0.5);
+  background-color: transparent;
+  border-radius: 9999px;
+  transition: background-color 0.3s linear;
 }
 
-/* Handle on hover */
+/* Hovering any scrollable area (hover bubbles to ancestors) reveals the thumb. */
+*:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent);
+}
+
+/* Stronger when pointing directly at the thumb. */
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(85, 85, 85, 0.5);
+  background-color: color-mix(in srgb, var(--color-textcolor2) 55%, transparent);
 }
 
-.n-scroll::-webkit-scrollbar-thumb {
-  visibility: hidden;
-  opacity: 0;
-  transition: visibility 0.5s, opacity 0.5s linear;
+/* Firefox: thin neutral scrollbar (inherits from root; no per-element auto-hide). */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent) transparent;
 }
 
-.n-scroll:hover::-webkit-scrollbar-thumb {
-  visibility: visible;
-  opacity: 1;
-}
-
-.n-scroll:focus::-webkit-scrollbar-thumb {
-  visibility: visible;
-  opacity: 1;
+/* Touch devices: the chat scroller's scrollbar spans the container's full height,
+   so its thumb rides right beside the sticky composer — and since a tap counts as
+   hover, it lingers there. Mobile scrolls by touch (plus the optional scroll-nav
+   buttons), so hide the bar on coarse pointers; desktop keeps it. */
+@media (pointer: coarse) {
+  .default-chat-screen::-webkit-scrollbar {
+    display: none;
+  }
+  .default-chat-screen {
+    scrollbar-width: none;
+  }
 }
 
 * {

@@ -1,5 +1,7 @@
 import { helpVi } from "./help.vi";
 export const languageVietnamese = {
+    modelPresetToolUse: "Sử dụng công cụ",
+    modelPresetToolUseHelp: "Cho phép preset này gọi các công cụ đã cấu hình (MCP). Mặc định tắt. Lượt chạy công cụ được gửi mà không có streaming.",
     "formating": {
         "main": "Lời nhắc chính",
         "jailbreak": "Lời nhắc bẻ khóa",
@@ -582,10 +584,8 @@ export const languageVietnamese = {
     "textColor": "Văn bản màu",
     "classicRisu": "Risu cổ điển",
     "highcontrast": "Độ tương phản cao",
-    "quickPreset": "Bạn có thể nhanh chóng thay đổi cài đặt trước bằng Ctrl + (Chỉ mục cài sẵn)",
     "requestretrys": "Yêu cầu thử lại khi thất bại",
     "utilityBot": "Bot tiện ích",
-    "ShowLog": "Hiển thị nhật ký yêu cầu",
     "waifuWidth2": "Kích thước ký tự Waifu",
     "sayNothing": "Nhập 'không nói gì' khi không nhập chuỗi",
     "regexScript": "Tập lệnh Regex",
@@ -1285,7 +1285,6 @@ export const languageVietnamese = {
     },
     "generatedByAIDisclaimer": "Nội dung này được tạo bởi AI và có thể chứa thông tin không chính xác hoặc thiên kiến.",
     "aiGenerationWarning": "Nội dung sẽ được tạo bởi AI và có thể chứa thông tin không chính xác hoặc thiên kiến.",
-    "noRequestLogs": "Không có nhật ký yêu cầu nào.",
     "bookmark": "Dấu trang",
     "duplicatePluginFoundUpdateIt": "Phát hiện plugin trùng lặp. Bạn có muốn cập nhật plugin hiện có không?",
     "pluginUpdateFoundInstallIt": "Đã tìm thấy bản cập nhật plugin. Bạn có muốn cài đặt bản cập nhật này không?",
@@ -1357,6 +1356,8 @@ export const languageVietnamese = {
     nanoGPTSelectFromList: "Chọn từ danh sách",
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
+
+    remoteAccessTermuxWarning: "Cloudflare Quick Tunnel không hoạt động trên Termux. Hãy sử dụng Tailscale hoặc công cụ truy cập từ xa khác.",
 
     httpInsecureWarningTitle: "Đang kết nối qua HTTP",
     httpInsecureWarningBody: "Một số tính năng như plugin có thể không hoạt động. Hãy dùng tính năng Truy cập từ xa để có kết nối HTTPS.",
